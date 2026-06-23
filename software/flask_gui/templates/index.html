@@ -8,19 +8,43 @@
 </head>
 <body>
     <main class="shell">
-        <section class="status-panel">
+        <header class="topbar">
             <div>
                 <p class="eyebrow">ELE495</p>
                 <h1>Basketbol Robot Kontrol Paneli</h1>
             </div>
-            <div class="mode-badge" id="mode">idle</div>
+            <div class="status-cluster">
+                <div class="connection" id="connection">Baglaniyor</div>
+                <div class="mode-badge mode-idle" id="mode-badge">
+                    <span class="status-dot"></span>
+                    <span id="mode">IDLE</span>
+                </div>
+            </div>
+        </header>
+
+        <section class="telemetry-grid" aria-label="Telemetri">
+            <article class="telemetry-card">
+                <span>Skor</span>
+                <strong id="score">0</strong>
+            </article>
+            <article class="telemetry-card">
+                <span>Mod</span>
+                <strong id="mode-card">IDLE</strong>
+            </article>
+            <article class="telemetry-card">
+                <span>Pil</span>
+                <strong id="battery">92%</strong>
+            </article>
+            <article class="telemetry-card">
+                <span>Sure</span>
+                <strong id="timer">05:00</strong>
+            </article>
         </section>
 
-        <section class="grid">
+        <section class="dashboard-grid">
             <article class="panel">
                 <h2>Robot Durumu</h2>
                 <dl class="status-list">
-                    <div><dt>Skor</dt><dd id="score">0</dd></div>
                     <div><dt>Konum</dt><dd id="pose">-</dd></div>
                     <div><dt>On sensor</dt><dd id="front-clear">-</dd></div>
                     <div><dt>Sol motor</dt><dd id="drive-left">0.00</dd></div>
@@ -32,35 +56,38 @@
             <article class="panel">
                 <h2>Manuel Surus</h2>
                 <div class="button-grid">
-                    <button data-drive="0.5,0.5">Ileri</button>
-                    <button data-drive="-0.4,0.4">Sola Don</button>
-                    <button data-drive="0.4,-0.4">Saga Don</button>
-                    <button data-drive="-0.4,-0.4">Geri</button>
-                    <button data-drive="0,0">Dur</button>
+                    <button class="btn btn-move" data-drive="0.5,0.5">Ileri</button>
+                    <button class="btn btn-move" data-drive="-0.4,0.4">Sola Don</button>
+                    <button class="btn btn-move" data-drive="0.4,-0.4">Saga Don</button>
+                    <button class="btn btn-move" data-drive="-0.4,-0.4">Geri</button>
+                    <button class="btn btn-stop" data-drive="0,0">Dur</button>
                 </div>
             </article>
 
             <article class="panel">
                 <h2>Komutlar</h2>
                 <div class="button-stack">
-                    <button id="auto-step">Otonom Adim</button>
-                    <button id="shoot">Atis Yap</button>
-                    <button data-score="2">+2 Puan</button>
-                    <button data-score="4">+4 Puan</button>
-                    <button id="score-reset">Skoru Sifirla</button>
-                    <button id="reset">Reset</button>
-                    <button class="danger" id="emergency">Acil Durdur</button>
+                    <button class="btn btn-auto" id="auto-step">Otonom Adim</button>
+                    <button class="btn btn-auto" id="shoot">Atis Yap</button>
+                    <button class="btn btn-score" data-score="2">+2 Puan</button>
+                    <button class="btn btn-score" data-score="4">+4 Puan</button>
+                    <button class="btn btn-critical" id="score-reset">Skoru Sifirla</button>
+                    <button class="btn btn-critical" id="reset">Reset</button>
+                    <button class="btn btn-emergency" id="emergency">Acil Durdur</button>
                 </div>
             </article>
 
             <article class="panel history-panel">
                 <h2>Gorev Gecmisi</h2>
-                <ol id="task-history" class="history-list"></ol>
+                <ol id="task-history" class="history-list" aria-live="polite"></ol>
             </article>
         </section>
     </main>
 
     <script>
+        const demoDurationSeconds = 5 * 60;
+        const startedAt = Date.now();
+
         async function postJson(url, body = {}) {
             const response = await fetch(url, {
                 method: "POST",
@@ -71,13 +98,21 @@
         }
 
         async function refreshStatus() {
-            const response = await fetch("/api/status");
-            renderStatus(await response.json());
+            try {
+                const response = await fetch("/api/status");
+                renderStatus(await response.json());
+                setConnection(true);
+            } catch (error) {
+                setConnection(false);
+            }
         }
 
         function renderStatus(status) {
-            document.getElementById("mode").textContent = status.mode;
+            const readableMode = status.mode.replace("_", " ").toUpperCase();
+            document.getElementById("mode").textContent = readableMode;
+            document.getElementById("mode-card").textContent = readableMode;
             document.getElementById("score").textContent = status.score;
+            document.getElementById("battery").textContent = `${status.battery_percent}%`;
             document.getElementById("pose").textContent =
                 `${status.pose.x_cm.toFixed(1)}, ${status.pose.y_cm.toFixed(1)}, ${status.pose.heading_deg.toFixed(0)} deg`;
             document.getElementById("front-clear").textContent = status.front_clear ? "acik" : "engel var";
@@ -85,14 +120,49 @@
             document.getElementById("drive-right").textContent = status.drive_right.toFixed(2);
             document.getElementById("shooter").textContent =
                 status.shooter_armed ? `hazir (${status.shooter_speed.toFixed(2)})` : "kapali";
+            updateModeBadge(status.mode, status.front_clear);
 
             const history = document.getElementById("task-history");
             history.innerHTML = "";
             status.task_history.forEach((item) => {
                 const row = document.createElement("li");
-                row.textContent = item;
+                const parts = item.split(" - ");
+                const time = document.createElement("span");
+                const message = document.createElement("span");
+                time.className = "history-time";
+                time.textContent = `[${parts[0]}]`;
+                message.textContent = parts.slice(1).join(" - ") || item;
+                row.append(time, message);
                 history.appendChild(row);
             });
+        }
+
+        function setConnection(isConnected) {
+            const connection = document.getElementById("connection");
+            connection.textContent = isConnected ? "Bagli" : "Baglanti yok";
+            connection.className = isConnected ? "connection connected" : "connection disconnected";
+        }
+
+        function updateModeBadge(mode, frontClear) {
+            const badge = document.getElementById("mode-badge");
+            badge.className = "mode-badge";
+            if (mode === "emergency_stop" || mode === "error") {
+                badge.classList.add("mode-danger");
+            } else if (!frontClear || mode === "idle") {
+                badge.classList.add("mode-waiting");
+            } else if (mode === "autonomous") {
+                badge.classList.add("mode-auto");
+            } else {
+                badge.classList.add("mode-ready");
+            }
+        }
+
+        function updateTimer() {
+            const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+            const remaining = Math.max(0, demoDurationSeconds - elapsed);
+            const minutes = Math.floor(remaining / 60).toString().padStart(2, "0");
+            const seconds = (remaining % 60).toString().padStart(2, "0");
+            document.getElementById("timer").textContent = `${minutes}:${seconds}`;
         }
 
         document.querySelectorAll("[data-drive]").forEach((button) => {
@@ -115,7 +185,9 @@
         document.getElementById("emergency").addEventListener("click", () => postJson("/api/emergency-stop"));
 
         refreshStatus();
+        updateTimer();
         setInterval(refreshStatus, 2000);
+        setInterval(updateTimer, 1000);
     </script>
 </body>
 </html>

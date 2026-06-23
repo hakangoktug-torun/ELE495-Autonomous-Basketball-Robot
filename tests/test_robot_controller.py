@@ -35,6 +35,7 @@ class RobotControllerTests(unittest.TestCase):
         self.assertEqual(status["mode"], "idle")
         self.assertEqual(status["pose"]["x_cm"], 40.0)
         self.assertEqual(status["score"], 0)
+        self.assertEqual(status["battery_percent"], 92)
         self.assertGreaterEqual(len(status["task_history"]), 1)
 
     def test_score_updates_are_tracked_in_history(self):

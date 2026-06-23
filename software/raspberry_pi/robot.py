@@ -26,6 +26,7 @@ class RobotStatus:
     pose: Pose
     dry_run: bool
     score: int
+    battery_percent: int
     task_history: list[str]
     front_clear: bool
     drive_left: float
@@ -45,6 +46,7 @@ class RobotController:
         self.shooter = Shooter(default_speed=config.default_shooter_speed)
         self.vision = VisionSystem()
         self.score = 0
+        self.battery_percent = 92
         self.task_history: list[str] = []
         self._record("Robot controller initialized")
 
@@ -128,6 +130,7 @@ class RobotController:
             pose=self.pose,
             dry_run=self.config.dry_run,
             score=self.score,
+            battery_percent=self.battery_percent,
             task_history=list(self.task_history),
             front_clear=readings.front_clear,
             drive_left=self.drive.command.left_speed,
