@@ -1,3 +1,152 @@
 body {
+    margin: 0;
+    background: #f5f7fb;
+    color: #1f2937;
     font-family: Arial, sans-serif;
+}
+
+button {
+    min-height: 44px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #111827;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #eef2f7;
+}
+
+.shell {
+    width: min(1100px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 32px 0;
+}
+
+.status-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.eyebrow {
+    margin: 0 0 6px;
+    color: #2563eb;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+h1,
+h2 {
+    margin: 0;
+}
+
+h1 {
+    font-size: 2rem;
+}
+
+h2 {
+    margin-bottom: 16px;
+    font-size: 1.1rem;
+}
+
+.mode-badge {
+    border-radius: 6px;
+    background: #111827;
+    color: #ffffff;
+    padding: 10px 14px;
+    font-weight: 800;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.panel {
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 18px;
+}
+
+.status-list {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+}
+
+.status-list div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+dt {
+    color: #64748b;
+}
+
+dd {
+    margin: 0;
+    font-weight: 700;
+    text-align: right;
+}
+
+.button-grid,
+.button-stack {
+    display: grid;
+    gap: 10px;
+}
+
+.button-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.button-grid button:first-child,
+.button-grid button:last-child {
+    grid-column: 1 / -1;
+}
+
+.danger {
+    border-color: #b91c1c;
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.danger:hover {
+    background: #b91c1c;
+}
+
+.history-panel {
+    grid-column: 1 / -1;
+}
+
+.history-list {
+    display: grid;
+    gap: 8px;
+    max-height: 260px;
+    margin: 0;
+    overflow: auto;
+    padding-left: 22px;
+}
+
+.history-list li {
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 8px;
+}
+
+@media (max-width: 760px) {
+    .status-panel {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+    }
 }

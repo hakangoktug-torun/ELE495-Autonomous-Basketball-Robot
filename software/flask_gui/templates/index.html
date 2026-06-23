@@ -1,9 +1,121 @@
 <!DOCTYPE html>
-<html>
+<html lang="tr">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ELE495 Robot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>Autonomous Ping Pong Robot</h1>
+    <main class="shell">
+        <section class="status-panel">
+            <div>
+                <p class="eyebrow">ELE495</p>
+                <h1>Basketbol Robot Kontrol Paneli</h1>
+            </div>
+            <div class="mode-badge" id="mode">idle</div>
+        </section>
+
+        <section class="grid">
+            <article class="panel">
+                <h2>Robot Durumu</h2>
+                <dl class="status-list">
+                    <div><dt>Skor</dt><dd id="score">0</dd></div>
+                    <div><dt>Konum</dt><dd id="pose">-</dd></div>
+                    <div><dt>On sensor</dt><dd id="front-clear">-</dd></div>
+                    <div><dt>Sol motor</dt><dd id="drive-left">0.00</dd></div>
+                    <div><dt>Sag motor</dt><dd id="drive-right">0.00</dd></div>
+                    <div><dt>Atici</dt><dd id="shooter">kapali</dd></div>
+                </dl>
+            </article>
+
+            <article class="panel">
+                <h2>Manuel Surus</h2>
+                <div class="button-grid">
+                    <button data-drive="0.5,0.5">Ileri</button>
+                    <button data-drive="-0.4,0.4">Sola Don</button>
+                    <button data-drive="0.4,-0.4">Saga Don</button>
+                    <button data-drive="-0.4,-0.4">Geri</button>
+                    <button data-drive="0,0">Dur</button>
+                </div>
+            </article>
+
+            <article class="panel">
+                <h2>Komutlar</h2>
+                <div class="button-stack">
+                    <button id="auto-step">Otonom Adim</button>
+                    <button id="shoot">Atis Yap</button>
+                    <button data-score="2">+2 Puan</button>
+                    <button data-score="4">+4 Puan</button>
+                    <button id="score-reset">Skoru Sifirla</button>
+                    <button id="reset">Reset</button>
+                    <button class="danger" id="emergency">Acil Durdur</button>
+                </div>
+            </article>
+
+            <article class="panel history-panel">
+                <h2>Gorev Gecmisi</h2>
+                <ol id="task-history" class="history-list"></ol>
+            </article>
+        </section>
+    </main>
+
+    <script>
+        async function postJson(url, body = {}) {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body)
+            });
+            renderStatus(await response.json());
+        }
+
+        async function refreshStatus() {
+            const response = await fetch("/api/status");
+            renderStatus(await response.json());
+        }
+
+        function renderStatus(status) {
+            document.getElementById("mode").textContent = status.mode;
+            document.getElementById("score").textContent = status.score;
+            document.getElementById("pose").textContent =
+                `${status.pose.x_cm.toFixed(1)}, ${status.pose.y_cm.toFixed(1)}, ${status.pose.heading_deg.toFixed(0)} deg`;
+            document.getElementById("front-clear").textContent = status.front_clear ? "acik" : "engel var";
+            document.getElementById("drive-left").textContent = status.drive_left.toFixed(2);
+            document.getElementById("drive-right").textContent = status.drive_right.toFixed(2);
+            document.getElementById("shooter").textContent =
+                status.shooter_armed ? `hazir (${status.shooter_speed.toFixed(2)})` : "kapali";
+
+            const history = document.getElementById("task-history");
+            history.innerHTML = "";
+            status.task_history.forEach((item) => {
+                const row = document.createElement("li");
+                row.textContent = item;
+                history.appendChild(row);
+            });
+        }
+
+        document.querySelectorAll("[data-drive]").forEach((button) => {
+            button.addEventListener("click", () => {
+                const [left, right] = button.dataset.drive.split(",").map(Number);
+                postJson("/api/manual", {left, right});
+            });
+        });
+
+        document.querySelectorAll("[data-score]").forEach((button) => {
+            button.addEventListener("click", () => {
+                postJson("/api/score", {points: Number(button.dataset.score)});
+            });
+        });
+
+        document.getElementById("auto-step").addEventListener("click", () => postJson("/api/autonomous-step"));
+        document.getElementById("shoot").addEventListener("click", () => postJson("/api/shoot"));
+        document.getElementById("score-reset").addEventListener("click", () => postJson("/api/score/reset"));
+        document.getElementById("reset").addEventListener("click", () => postJson("/api/reset"));
+        document.getElementById("emergency").addEventListener("click", () => postJson("/api/emergency-stop"));
+
+        refreshStatus();
+        setInterval(refreshStatus, 2000);
+    </script>
 </body>
 </html>

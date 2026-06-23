@@ -2,37 +2,95 @@
 
 ## Project Description
 
-This project aims to develop an autonomous robot capable of navigating on a miniature basketball court and scoring ping-pong balls into a basketball hoop from different scoring zones.
+This repository contains the software and documentation for an ELE495 senior
+design project: a Raspberry Pi based autonomous mobile robot that moves on an
+80x120 cm miniature basketball court and shoots ping-pong balls toward a hoop.
 
-## Team Members
+## Core Rules
 
-- Hakan Göktuğ Torun
-- Zeynep Sude Sezgin
-- Ahmet Selim Gök
-- Kuzey Torçuk
-
+- Arduino is not used for the target implementation.
+- ESP32 is not used.
+- The main processor is Raspberry Pi.
+- Robot software is written in Python.
+- The operator interface is built with Flask.
+- The existing repository structure is preserved.
 
 ## Technologies
 
 - Raspberry Pi
-- Arduino
-- OpenCV
 - Python
-- Computer Vision
-- Wi-Fi Communication
+- Flask
+- OpenCV
+- GPIO-compatible motor, sensor, and shooting mechanism control
 
 ## Repository Structure
 
+```text
 docs/
-- WBS
-- Gantt Charts
-- Reports
-- Presentations
+  Gantt/           Project planning documents
+  Presentations/   Presentation files
+  Reports/         Reports and architecture notes
+  WBS/             Work breakdown structure
+
+hardware/          Wiring, pin map, and mechanical notes
+media/             Photos and videos
 
 software/
-- Raspberry Pi source code
-- Arduino source code
+  flask_gui/       Flask web control panel
+  raspberry_pi/    Robot control, navigation, vision, and shooting modules
 
-media/
-- Photos
-- Videos
+tests/             Python tests
+```
+
+## Current Software Architecture
+
+The Raspberry Pi layer is split into small modules:
+
+- `config.py`: court dimensions, GPIO pin placeholders, and runtime settings.
+- `robot.py`: high-level robot state machine and command orchestration.
+- `motor_control.py`: drive-base interface with a safe simulated implementation.
+- `sensors.py`: distance sensor abstraction.
+- `navigation/`: court pose and scoring-zone navigation helpers.
+- `shooting/`: ping-pong shooting mechanism logic.
+- `vision/`: hoop/court detection interface placeholder.
+
+The Flask app exposes a browser-based control panel and JSON endpoints for
+status, manual drive, autonomous step, shooting, score tracking, task history,
+reset, and emergency stop.
+
+## Requirements Traceability
+
+The project criteria and question-answer PDFs are summarized in:
+
+```text
+docs/Reports/requirements_compliance.md
+```
+
+That checklist tracks which requirements are covered by the current repository
+and which items still need implementation or documentation.
+
+## Running the Flask Interface
+
+```bash
+pip install -r requirements.txt
+python -m software.flask_gui.app
+```
+
+Then open:
+
+```text
+http://localhost:5000
+```
+
+## Running Tests
+
+```bash
+pytest
+```
+
+## Implementation Notes
+
+GPIO access is intentionally abstracted behind Python classes. The default
+configuration runs in `dry_run` mode so the project can be developed and tested
+on non-Raspberry Pi machines before real motor drivers, sensors, and the shooter
+mechanism are connected.
