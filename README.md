@@ -8,8 +8,8 @@ design project: a Raspberry Pi based autonomous mobile robot that moves on an
 
 ## Core Rules
 
-- Arduino is not used for the target implementation.
 - ESP32 is not used.
+- Arduino Uno is used for some sensors and motor connections.
 - The main processor is Raspberry Pi.
 - Robot software is written in Python.
 - The operator interface is built with Flask.
@@ -17,6 +17,7 @@ design project: a Raspberry Pi based autonomous mobile robot that moves on an
 
 ## Technologies
 
+- Arduino Uno
 - Raspberry Pi
 - Python
 - Flask
