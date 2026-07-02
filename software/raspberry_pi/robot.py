@@ -1,5 +1,8 @@
 """High-level robot state and command orchestration."""
 
+import math
+import threading
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
@@ -25,6 +28,9 @@ class RobotStatus:
     mode: RobotMode
     pose: Pose
     dry_run: bool
+    simulated_motion: bool
+    court_width_cm: float
+    court_length_cm: float
     score: int
     battery_percent: int
     task_history: list[str]
@@ -39,14 +45,22 @@ class RobotController:
     def __init__(self, config: RobotConfig) -> None:
         self.config = config
         self.mode = RobotMode.IDLE
-        self.pose = Pose(config.court.width_cm / 2.0, 10.0, 0.0)
+        self.pose = Pose(config.court.width_cm / 2.0, 10.0, 90.0)
+
+        # simulated_motion = True means: wheels never actually turn, pose is
+        # instead integrated from commanded speeds. True for pure dry_run
+        # bench testing AND for the "real sensors, fake wheels" test mode.
+        self.simulated_motion = config.dry_run or config.simulate_motion
 
         if config.dry_run:
             self.drive = SimulatedDriveBase(max_speed=config.max_drive_speed)
             self.sensors = SimulatedDistanceSensors()
+        elif config.simulate_motion:
+            self.drive = SimulatedDriveBase(max_speed=config.max_drive_speed)
+            self.sensors = ArduinoDistanceSensors(port=config.serial_port, baudrate=config.serial_baudrate)
         else:
             self.drive = RPiDriveBase(pins=config.pins, max_speed=config.max_drive_speed)
-            self.sensors = ArduinoDistanceSensors(port=config.serial_port)
+            self.sensors = ArduinoDistanceSensors(port=config.serial_port, baudrate=config.serial_baudrate)
 
         self.navigator = Navigator(config.court)
         self.shooter = Shooter(default_speed=config.default_shooter_speed)
@@ -54,7 +68,46 @@ class RobotController:
         self.score = 0
         self.battery_percent = 92
         self.task_history: list[str] = []
-        self._record(f"Robot controller initialized (dry_run={config.dry_run})")
+
+        self._pose_lock = threading.Lock()
+        self._sim_running = self.simulated_motion
+        self._sim_thread = None
+        if self.simulated_motion:
+            self._sim_thread = threading.Thread(target=self._simulate_motion_loop, daemon=True)
+            self._sim_thread.start()
+
+        self._record(
+            f"Robot controller initialized (dry_run={config.dry_run}, "
+            f"simulate_motion={config.simulate_motion})"
+        )
+
+    def _simulate_motion_loop(self) -> None:
+        tick_seconds = 0.1
+        last = time.monotonic()
+        while self._sim_running:
+            time.sleep(tick_seconds)
+            now = time.monotonic()
+            dt = now - last
+            last = now
+            self._integrate_pose(dt)
+
+    def _integrate_pose(self, dt: float) -> None:
+        # Simple differential-drive kinematics. Purely for visualization -
+        # not a substitute for real odometry once encoders/IMU exist.
+        cmd = self.drive.command
+        v_left = cmd.left_speed * self.config.sim_max_speed_cms
+        v_right = cmd.right_speed * self.config.sim_max_speed_cms
+        v = (v_left + v_right) / 2.0
+        omega_deg_per_s = math.degrees(
+            (v_right - v_left) / self.config.sim_wheelbase_cm
+        )
+
+        with self._pose_lock:
+            heading_rad = math.radians(self.pose.heading_deg)
+            new_x = self.pose.x_cm + v * math.cos(heading_rad) * dt
+            new_y = self.pose.y_cm + v * math.sin(heading_rad) * dt
+            new_heading = self.pose.heading_deg + omega_deg_per_s * dt
+            self.pose = self.navigator.clamp_pose(Pose(new_x, new_y, new_heading))
 
     def set_mode(self, mode: RobotMode | str) -> RobotStatus:
         next_mode = RobotMode(mode)
@@ -131,10 +184,15 @@ class RobotController:
 
     def status(self) -> RobotStatus:
         readings = self.sensors.read()
+        with self._pose_lock:
+            pose = self.pose
         return RobotStatus(
             mode=self.mode,
-            pose=self.pose,
+            pose=pose,
             dry_run=self.config.dry_run,
+            simulated_motion=self.simulated_motion,
+            court_width_cm=self.config.court.width_cm,
+            court_length_cm=self.config.court.length_cm,
             score=self.score,
             battery_percent=self.battery_percent,
             task_history=list(self.task_history),
@@ -151,6 +209,7 @@ class RobotController:
         return data
 
     def close(self) -> None:
+        self._sim_running = False
         self.drive.stop()
         self.sensors.close()
 

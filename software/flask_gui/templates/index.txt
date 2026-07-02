@@ -77,6 +77,18 @@
                 </div>
             </article>
 
+            <article class="panel map-panel">
+                <div class="map-panel-head">
+                    <h2>Simulasyon Haritasi</h2>
+                    <span class="sim-badge" id="sim-badge">SIMULASYON: tekerlekler donmuyor</span>
+                </div>
+                <svg id="sim-map" viewBox="0 0 80 120" preserveAspectRatio="xMidYMid meet">
+                    <rect x="0" y="0" width="80" height="120" class="map-court"/>
+                    <line id="robot-heading" x1="40" y1="10" x2="40" y2="4" class="map-heading"/>
+                    <circle id="robot-marker" cx="40" cy="10" r="3" class="map-robot"/>
+                </svg>
+            </article>
+
             <article class="panel history-panel">
                 <h2>Gorev Gecmisi</h2>
                 <ol id="task-history" class="history-list" aria-live="polite"></ol>
@@ -121,6 +133,7 @@
             document.getElementById("shooter").textContent =
                 status.shooter_armed ? `hazir (${status.shooter_speed.toFixed(2)})` : "kapali";
             updateModeBadge(status.mode, status.front_clear);
+            updateMap(status);
 
             const history = document.getElementById("task-history");
             history.innerHTML = "";
@@ -135,6 +148,33 @@
                 row.append(time, message);
                 history.appendChild(row);
             });
+        }
+
+        function updateMap(status) {
+            const svg = document.getElementById("sim-map");
+            if (svg.dataset.sized !== "1") {
+                svg.setAttribute("viewBox", `0 0 ${status.court_width_cm} ${status.court_length_cm}`);
+                svg.querySelector(".map-court").setAttribute("width", status.court_width_cm);
+                svg.querySelector(".map-court").setAttribute("height", status.court_length_cm);
+                svg.dataset.sized = "1";
+            }
+
+            const marker = document.getElementById("robot-marker");
+            const heading = document.getElementById("robot-heading");
+            const x = status.pose.x_cm;
+            const y = status.pose.y_cm;
+            const rad = (status.pose.heading_deg * Math.PI) / 180;
+            const arrowLen = Math.max(status.court_width_cm, status.court_length_cm) * 0.08;
+
+            marker.setAttribute("cx", x);
+            marker.setAttribute("cy", y);
+            heading.setAttribute("x1", x);
+            heading.setAttribute("y1", y);
+            heading.setAttribute("x2", x + arrowLen * Math.cos(rad));
+            heading.setAttribute("y2", y + arrowLen * Math.sin(rad));
+
+            document.getElementById("sim-badge").style.display =
+                status.simulated_motion ? "inline-flex" : "none";
         }
 
         function setConnection(isConnected) {
@@ -186,7 +226,7 @@
 
         refreshStatus();
         updateTimer();
-        setInterval(refreshStatus, 2000);
+        setInterval(refreshStatus, 700);
         setInterval(updateTimer, 1000);
     </script>
 </body>

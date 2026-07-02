@@ -29,8 +29,23 @@ class RobotConfig:
     serial_port: str = "/dev/ttyACM0"
     serial_baudrate: int = 115200
     dry_run: bool = True
+    # If True (and dry_run is False): real sensors are read from Arduino,
+    # but the drive base is simulated - wheels never actually turn.
+    # Pose is instead integrated from commanded wheel speeds, so the GUI
+    # can show the robot "moving" for bench testing without hardware risk.
+    simulate_motion: bool = False
     max_drive_speed: float = 1.0
     default_shooter_speed: float = 0.65
+    # Kinematics used only for pose simulation (dry_run or simulate_motion).
+    # Tune sim_max_speed_cms once you know your real top speed at full PWM.
+    sim_max_speed_cms: float = 25.0
+    sim_wheelbase_cm: float = 15.0
 
 
 DEFAULT_CONFIG = RobotConfig()
+
+# Real sensors, fake wheels - the "sensors-in-the-loop" bench test mode.
+SIMULATION_CONFIG = RobotConfig(dry_run=False, simulate_motion=True)
+
+# Real sensors, real wheels - full hardware mode.
+LIVE_CONFIG = RobotConfig(dry_run=False, simulate_motion=False)

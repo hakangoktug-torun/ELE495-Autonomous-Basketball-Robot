@@ -1,9 +1,14 @@
 from flask import Flask, jsonify, render_template, request
 
-from software.raspberry_pi import DEFAULT_CONFIG, RobotController, RobotMode
+from software.raspberry_pi.config import LIVE_CONFIG, SIMULATION_CONFIG
+from software.raspberry_pi.robot import RobotController, RobotMode
 
 app = Flask(__name__)
-robot = RobotController(DEFAULT_CONFIG)
+
+# Swap which line is active to switch between simulated wheels and real ones.
+# Nothing else in this file, robot.py, or the GUI needs to change.
+robot = RobotController(SIMULATION_CONFIG)
+# robot = RobotController(LIVE_CONFIG)
 
 
 @app.route("/")
@@ -72,4 +77,7 @@ def reset():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    finally:
+        robot.close()

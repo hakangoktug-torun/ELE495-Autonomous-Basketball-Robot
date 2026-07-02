@@ -267,6 +267,63 @@ dd {
     grid-column: 1 / -1;
 }
 
+.map-panel {
+    grid-column: 1 / -1;
+}
+
+.map-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.map-panel-head h2 {
+    margin-bottom: 0;
+}
+
+.sim-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: #fef3c7;
+    color: var(--yellow);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+#sim-map {
+    display: block;
+    width: 100%;
+    max-width: 260px;
+    height: auto;
+    margin: 0 auto;
+    background: #f8fafc;
+    border: 1px solid var(--panel-line);
+    border-radius: 8px;
+}
+
+.map-court {
+    fill: #f8fafc;
+    stroke: var(--panel-line);
+    stroke-width: 1;
+}
+
+.map-heading {
+    stroke: var(--blue);
+    stroke-width: 1.2;
+}
+
+.map-robot {
+    fill: var(--blue);
+    stroke: var(--blue-dark);
+    stroke-width: 0.6;
+}
+
 .history-panel {
     grid-column: 1 / -1;
 }
