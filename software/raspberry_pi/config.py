@@ -26,6 +26,8 @@ class PinConfig:
 class RobotConfig:
     court: CourtConfig = field(default_factory=CourtConfig)
     pins: PinConfig = field(default_factory=PinConfig)
+    serial_port: str = "/dev/ttyACM0"
+    serial_baudrate: int = 115200
     dry_run: bool = True
     max_drive_speed: float = 1.0
     default_shooter_speed: float = 0.65

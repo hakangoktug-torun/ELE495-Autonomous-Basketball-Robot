@@ -14,17 +14,40 @@ class DistanceReadings:
     ir_right_clear: bool = True
 
 
+class SimulatedDistanceSensors:
+    """Kept for dry_run / bench testing without hardware attached."""
+
+    def __init__(self) -> None:
+        self.readings = DistanceReadings()
+
+    def read(self) -> DistanceReadings:
+        return self.readings
+
+    def set_front_obstacle(self, distance_cm: float | None) -> None:
+        self.readings = DistanceReadings(
+            front_clear=distance_cm is None,
+            front_distance_cm=distance_cm,
+        )
+
+    def close(self) -> None:
+        pass
+
+
 class ArduinoDistanceSensors:
     def __init__(self, port: str = '/dev/ttyACM0', baudrate: int = 115200) -> None:
         self.readings = DistanceReadings()
         self.running = True
-        
+
         try:
-            # Arduino USB Bağlantısı
+            # Arduino USB Baglantisi
             self.ser = serial.Serial(port, baudrate, timeout=1.0)
-            # Serial buffer'ı temizle
-            self.ser.flush()
-            # Arka planda sürekli Arduino'yu dinleyecek bir thread başlatıyoruz
+
+            # Arduino, port acilinca DTR tetiklemesiyle resetlenir.
+            # Reset bitene kadar bekleyip yarim/bozuk satirlari temizliyoruz.
+            time.sleep(2.0)
+            self.ser.reset_input_buffer()
+
+            # Arka planda surekli Arduino'yu dinleyecek bir thread baslatiyoruz
             self.thread = threading.Thread(target=self._listen_arduino, daemon=True)
             self.thread.start()
             print(f"Arduino connected on {port}")
@@ -45,14 +68,14 @@ class ArduinoDistanceSensors:
                         ir2 = int(parts[1])
                         distance_cm = float(parts[2])
 
-                        # E18-D80NK sensörler engel görünce LOW (0) verir.
+                        # E18-D80NK sensorler engel gorunce LOW (0) verir.
                         ir_left_clear = (ir1 == 1)
                         ir_right_clear = (ir2 == 1)
 
-                        # Ultrasonik hata durumunda -1 basıyordu, onu None yapalım
+                        # Ultrasonik hata durumunda -1 basiyordu, onu None yapalim
                         actual_dist = None if distance_cm == -1 else distance_cm
-                        
-                        # Eğer ultrasonik 10cm altındaysa VEYA IR sensörlerden biri engel gördüyse önümüz kapalıdır
+
+                        # Eger ultrasonik 10cm altindaysa VEYA IR sensorlerden biri engel gorduyse onumuz kapalidir
                         front_clear = True
                         if actual_dist is not None and actual_dist <= 10.0:
                             front_clear = False
@@ -66,7 +89,7 @@ class ArduinoDistanceSensors:
                             ir_right_clear=ir_right_clear
                         )
                 except Exception:
-                    pass # Hatalı satır gelirse es geç
+                    pass  # Hatali satir gelirse es gec
             time.sleep(0.01)
 
     def read(self) -> DistanceReadings:
