@@ -26,7 +26,7 @@ class PinConfig:
 class RobotConfig:
     court: CourtConfig = field(default_factory=CourtConfig)
     pins: PinConfig = field(default_factory=PinConfig)
-    serial_port: str = "/dev/ttyACM0"
+    serial_port: str = "/dev/ttyUSB0"
     serial_baudrate: int = 115200
     dry_run: bool = True
     # If True (and dry_run is False): real sensors are read from Arduino,
