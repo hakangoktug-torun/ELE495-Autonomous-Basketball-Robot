@@ -5,7 +5,7 @@ import time
 IN1, IN2, IN3, IN4 = 5, 6, 13, 26
 ENA, ENB = 12, 16
 HIZ = 50
-SURE = 0.23   # ← bunu deneye deneye ayarlayacaksınız
+SURE = 2   # ← bunu deneye deneye ayarlayacaksınız
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
