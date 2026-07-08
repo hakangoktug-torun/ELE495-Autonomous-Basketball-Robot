@@ -31,8 +31,10 @@ from donus_kapali_dongu import (
 )
 
 # ---------- Duz gitme kapali dongu duzeltme ayarlari ----------
-DUZELTME_KAZANCI = 0.4   # derece basina duty duzeltme miktari - once kucuk basla, gerekirse artir
-MAKS_DUZELTME = 10.0     # duty cinsinden - tekerlek hizinin ne kadar degisebilecegi ustsiniri
+DUZELTME_KAZANCI = 0.6    # (P) derece basina duty duzeltme miktari
+DUZELTME_KAZANCI_I = 0.15  # (I) kalici/sabit asimetriyi (motor farki) zamanla sifirlamak icin
+MAKS_DUZELTME = 10.0      # duty cinsinden - toplam (P+I) duzeltmenin ustsiniri
+MAKS_INTEGRAL = 15.0      # integral birikiminin kendi ustsiniri (anti-windup)
 
 # ---------- Duz gitme hiz/kalibrasyon ayarlari ----------
 # Onceki kalibrasyon notlarindan: SOL_HIZ=25, SAG_HIZ=28 (+3 offset sag kaymayi
@@ -84,21 +86,31 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
         motorlari_durdur(pwm_a, pwm_b)
         return
 
-    # ---- Kapali dongu: hedef heading'i koru ----
+    # ---- Kapali dongu: hedef heading'i koru (PI kontrolor) ----
     hedef_heading = bridge.get_heading()
     print(f"  [DEBUG] Hedef heading: {hedef_heading}")
     baslangic = time.time()
     adim_sayaci = 0
+    integral = 0.0
+    son_zaman = baslangic
 
     while time.time() - baslangic < sure:
         simdiki_heading = bridge.get_heading()
+        simdi = time.time()
+        dt = simdi - son_zaman
+        son_zaman = simdi
 
         if simdiki_heading is not None and hedef_heading is not None:
             # Pozitif hata: heading artmis (robot 'sag'a donmus) -> bunu duzeltmek icin
             # sola kivrilmali -> sol tekeri YAVASLAT, sag tekeri HIZLANDIR
             # Negatif hata: heading azalmis (robot 'sol'a donmus) -> tam tersi
             hata = aci_farki(hedef_heading, simdiki_heading)
-            duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, DUZELTME_KAZANCI * hata))
+
+            integral += hata * dt
+            integral = max(-MAKS_INTEGRAL, min(MAKS_INTEGRAL, integral))  # anti-windup
+
+            duzeltme = DUZELTME_KAZANCI * hata + DUZELTME_KAZANCI_I * integral
+            duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, duzeltme))
 
             sol_duty = max(0, min(100, SOL_HIZ - duzeltme))
             sag_duty = max(0, min(100, SAG_HIZ + duzeltme))
@@ -151,6 +163,8 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     ardisik_esik_alti = 0
     GEREKEN_ARDISIK_OKUMA = 3
     son_islenen_zaman_damgasi = None
+    integral = 0.0
+    son_zaman = time.time()
 
     baslangic = time.time()
     while time.time() - baslangic < maks_sure:
@@ -163,10 +177,19 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
         simdiki_heading = veri["heading"]
         guncel_zaman_damgasi = veri["last_update"]
 
-        # ---- Heading feedback ile saga/sola kaymayi duzelt ----
+        simdi = time.time()
+        dt = simdi - son_zaman
+        son_zaman = simdi
+
+        # ---- Heading feedback ile saga/sola kaymayi duzelt (PI kontrolor) ----
         if simdiki_heading is not None and hedef_heading is not None:
             hata = aci_farki(hedef_heading, simdiki_heading)
-            duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, DUZELTME_KAZANCI * hata))
+
+            integral += hata * dt
+            integral = max(-MAKS_INTEGRAL, min(MAKS_INTEGRAL, integral))  # anti-windup
+
+            duzeltme = DUZELTME_KAZANCI * hata + DUZELTME_KAZANCI_I * integral
+            duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, duzeltme))
         else:
             duzeltme = 0.0
 
