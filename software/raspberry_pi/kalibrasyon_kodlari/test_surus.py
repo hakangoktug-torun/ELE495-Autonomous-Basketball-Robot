@@ -1,12 +1,17 @@
 """
-ELE495 - Test Surusu
+ELE495 - Test Surusu (KARE rota)
 Senaryo:
-  1) Bir cisim 30 cm'ye kadar yaklasana kadar duz git
+  1) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (1. kenar)
   2) 90 derece sola don (kapali dongu, BNO055 ile)
-  3) 20 cm ileri git
-  4) Tekrar 90 derece sola don
-  5) 20 cm ileri git
-  6) Dur
+  3) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (2. kenar)
+  4) 90 derece sola don
+  5) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (3. kenar)
+  6) 90 derece sola don
+  7) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (4. kenar)
+  8) 90 derece sola don (kareyi tamamlar, robot baslangictaki yone bakar)
+  9) Dur
+
+Toplam: 4 kenar + 4 donus = tam bir kare rota, 360 derece toplam donus.
 
 Bu dosyayi ayni klasore koy: software/raspberry_pi/kalibrasyon_kodlari/
 (donus_kapali_dongu.py ve robot_bridge.py ile ayni yerde olmali)
@@ -26,13 +31,13 @@ import RPi.GPIO as GPIO
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from robot_bridge import RobotBridge
 from donus_kapali_dongu import (
-    donus_yap, motorlari_ayarla, motorlari_durdur, aci_farki,
+    donus_yap, motorlari_ayarla, motorlari_durdur, aci_farki, isinma_yap,
     IN1, IN2, IN3, IN4, ENA, ENB, SERIAL_PORT
 )
 
 # ---------- Duz gitme kapali dongu duzeltme ayarlari ----------
-DUZELTME_KAZANCI = 0.6    # (P) derece basina duty duzeltme miktari
-DUZELTME_KAZANCI_I = 0.15  # (I) kalici/sabit asimetriyi (motor farki) zamanla sifirlamak icin
+DUZELTME_KAZANCI = 0.4    # (P) derece basina duty duzeltme miktari
+DUZELTME_KAZANCI_I = 0.08  # (I) kalici/sabit asimetriyi (motor farki) zamanla sifirlamak icin
 MAKS_DUZELTME = 10.0      # duty cinsinden - toplam (P+I) duzeltmenin ustsiniri
 MAKS_INTEGRAL = 15.0      # integral birikiminin kendi ustsiniri (anti-windup)
 
@@ -45,9 +50,10 @@ CM_PER_SANIYE = 23.5
 
 ENGEL_ESIGI_CM = 30.0     # bu mesafenin altina inince dur
 YAVASLAMA_MESAFE_FARKI = 15.0  # esige bu kadar cm kala yavasla (1. kademe)
-HIZ_YAVAS_ENGEL = 18       # 1. kademe yavaslama hizi
+HIZ_YAVAS_ENGEL = 22       # 1. kademe yavaslama hizi (18'den 22'ye - stall riskini azaltmak icin)
 COK_YAVAS_MESAFE_FARKI = 5.0   # esige bu kadar cm kala IYICE yavasla (2. kademe)
-HIZ_COK_YAVAS_ENGEL = 13   # 2. kademe (son yaklasim) hizi - overshoot'u minimize eder
+HIZ_COK_YAVAS_ENGEL = 20   # 2. kademe (son yaklasim) hizi (13'ten 20'ye - 13, donus testlerinde
+                            # motor stall'a yol actigini kanitladigimiz HIZ_YAVAS=15'in bile altindaydi)
 ILERI_ADIM_CM = 20.0      # her iki donusten sonra gidilecek mesafe
 MAKS_ENGEL_BEKLEME = 20.0  # saniye - engel hic bulunamazsa guvenlik siniri
 
@@ -166,6 +172,15 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     integral = 0.0
     son_zaman = time.time()
 
+    # STALL tespiti: yavaslama asamasinda mesafe uzun sure hic degismezse,
+    # robot dusuk duty'de fiziksel olarak durmus (stall) demektir - donus
+    # testlerinde ayni sorunu yasamistik. Boyle bir durumda kisa bir sure
+    # icin tam hiza cikip 'kurtarma' (unstick) yapariz.
+    STALL_ESIGI = 1.0  # saniye - yavas modda mesafe bu sure degismezse stall say
+    KURTARMA_SURESI = 0.15  # saniye - kurtarma icin tam hizda kalinacak sure
+    son_mesafe_degeri = None
+    son_mesafe_degisim_zamani = time.time()
+
     baslangic = time.time()
     while time.time() - baslangic < maks_sure:
         if bridge.is_stale(max_age_sec=0.5):
@@ -205,6 +220,25 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
         if yeni_ornek_mi and mesafe is not None and mesafe > 0:  # -1 = gecersiz okuma, yoksay
             son_islenen_zaman_damgasi = guncel_zaman_damgasi
             print(f"  Mesafe: {mesafe:.1f} cm")
+
+            # STALL tespiti: yavas modlardan birindeyken (dusuk duty), mesafe
+            # STALL_ESIGI suresi boyunca hic degismediyse, robot fiziksel
+            # olarak durmus demektir. Kisa bir 'kurtarma' atisi yap.
+            if son_mesafe_degeri is None or abs(mesafe - son_mesafe_degeri) >= 1.0:
+                son_mesafe_degeri = mesafe
+                son_mesafe_degisim_zamani = time.time()
+            elif ((yavas_moda_gecildi or cok_yavas_moda_gecildi) and
+                  time.time() - son_mesafe_degisim_zamani > STALL_ESIGI and
+                  mesafe > esik_cm):
+                print(f"  (STALL tespit edildi - {mesafe:.1f} cm'de takili kaldi, "
+                      f"kurtarma atisi yapiliyor...)")
+                pwm_a.ChangeDutyCycle(SOL_HIZ)
+                pwm_b.ChangeDutyCycle(SAG_HIZ)
+                time.sleep(KURTARMA_SURESI)
+                # Kurtarma sonrasi kaldigi yavaslama moduna geri don
+                pwm_a.ChangeDutyCycle(temel_sol)
+                pwm_b.ChangeDutyCycle(temel_sag)
+                son_mesafe_degisim_zamani = time.time()  # sayaci sifirla
 
             # 2. kademe: esige iyice yaklasinca daha da yavasla (once kontrol
             # edilmeli, cunku 2. kademe esigi 1. kademe esiginin icinde kalir)
@@ -246,7 +280,7 @@ def guvenli_donus(hedef_derece, yon, bridge, pwm_a, pwm_b, maks_deneme=2):
     Donus deger: True (basarili) / False (tum denemeler basarisiz)
     """
     for deneme in range(1, maks_deneme + 1):
-        sonuc = donus_yap(hedef_derece, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b)
+        sonuc = donus_yap(hedef_derece, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b, otonom=True)
 
         # Basari kontrolu: donen aci, hedefin en az yarisi kadar olmali.
         # Kilitlenme durumunda donus_yap 0.0 (ya da cok kucuk bir deger) doner.
@@ -287,6 +321,10 @@ def main():
     # olusturma/yikma sirasinda bazen motoru tepkisiz birakmasi sorununu onler.
     pwm_a, pwm_b = motorlari_ayarla()
 
+    # Demo sirasinda robotu elle kalibre etmek mumkun olmadigi icin, robot
+    # kendi motorlarini kullanarak otomatik bir isinma hareketi yapar.
+    isinma_yap(bridge, pwm_a, pwm_b)
+
     try:
         # ---- 1) Engele kadar duz git ----
         bulundu = ileri_git_engel_bulunca(bridge, pwm_a, pwm_b)
@@ -319,7 +357,25 @@ def main():
             print("Engel bulunamadigi icin test durduruldu.")
             return
 
-        print("\nTest surusu tamamlandi.")
+        # ---- 6) Tekrar 90 derece sola don ----
+        print("\n=== 3. DONUS: 90 derece sola ===")
+        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
+            print("Test durduruldu (3. donus basarisiz).")
+            return
+
+        # ---- 7) Engele (30 cm) kadar duz git (4. kenar) ----
+        bulundu = ileri_git_engel_bulunca(bridge, pwm_a, pwm_b)
+        if not bulundu:
+            print("Engel bulunamadigi icin test durduruldu.")
+            return
+
+        # ---- 8) Son kez 90 derece sola don (kareyi tamamla) ----
+        print("\n=== 4. DONUS: 90 derece sola (kareyi tamamla) ===")
+        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
+            print("Test durduruldu (4. donus basarisiz).")
+            return
+
+        print("\nTest surusu tamamlandi (kare tamamlandi - toplam 4 kenar, 4 donus).")
 
     finally:
         motorlari_durdur(pwm_a, pwm_b)

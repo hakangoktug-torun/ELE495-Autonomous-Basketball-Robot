@@ -31,7 +31,7 @@ ZAMAN_ASIMI = 8.0      # saniye - sensor/motor sorununda sonsuz donmeyi engeller
 SERIAL_PORT = "/dev/ttyUSB0"
 
 # ---------- Ince duzeltme (fine correction) ayarlari ----------
-FINE_TOLERANS = 1.0        # bu derecenin altindaki hata artik kabul edilir (3.0'dan dusuruldu - deneme)
+FINE_TOLERANS = 0.5        # bu derecenin altindaki hata artik kabul edilir (1.0'dan dusuruldu - deneme)
 DUZELTME_HIZ = 30           # HIZ_NORMAL ile ayni - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
 DUZELTME_MIN_SURE = 0.08    # saniye - motorun baslama gecikmesini (spin-up) guvenle asacak minimum sure
 DUZELTME_MAX_SURE = 0.15    # saniye - en uzun duzeltme atisi
@@ -40,27 +40,30 @@ MAKS_DUZELTME_DENEME = 12   # sonsuz salinim olmasin diye deneme sinirI
 
 
 def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_mag=3,
-                        kontrol_araligi=2.0):
+                        kontrol_araligi=2.0, otonom=False, otonom_maks_bekleme=6.0):
     """
     Rotasyon testi baslamadan once BNO055'in parametrelerinin hedef seviyeye
     ulasmasini bekler. hedef_accel varsayilan olarak 1 - cunku sasiye monteli
     bir sensoru elle 6 farkli yonde tam sabit tutmak pratikte cok zor, ve
     Bosch'un kendi fuzyon algoritmasi bile sys=3'e accel=1 ile ulasabiliyor
     (yani tam accel=3 sart degil, gyro ve mag cok daha kritik).
-    Her dongude, hangi parametrenin eksik oldugunu ve ne yapman gerektigini
-    ekrana yazdirir. sys genelde digerleri tamamlaninca kendiliginden yukselir.
+
+    otonom=True ise: HICBIR klavye girisi (input()) beklenmez - demo sirasinda
+    robotu elle durdurup onaylamak mumkun olmadigi icin bu mod gerekli.
+    EEPROM'dan kalibrasyon yuklendiyse hemen devam eder; yuklenmediyse en fazla
+    otonom_maks_bekleme saniye sys=3'u bekler, sonra ne durumda olursa olsun
+    devam eder (sonsuza kadar beklemez, demo robotu kilitlenmez).
     """
     print("\n=== KALIBRASYON KONTROLU ===")
 
-    # Once EEPROM'dan kayitli kalibrasyon yuklenmis mi diye bak. Yuklendiyse,
-    # canli 'sys' degeri dusuk gorunse bile (BNO055'in durum bitleri her
-    # acilista sifirlanir, ama offset'ler zaten yuklenip kullanilmaya
-    # BASLAMISTIR) uzun uzun beklemek yerine kisa bir onay sorup gecebiliriz.
     bridge.request_calibration_status()
     time.sleep(0.3)
     cal = bridge.get_calibration()
 
     if cal.get("eeprom_yuklendi"):
+        if otonom:
+            print("EEPROM'dan kalibrasyon yuklu - otonom modda dogrudan devam ediliyor.\n")
+            return True
         print("Arduino'da onceden kaydedilmis bir kalibrasyon yuklu.")
         print("(NOT: sys/gyro/accel/mag degerleri her acilista sifirlanir, "
               "ama offset'ler zaten arka planda kullaniliyor olabilir.)")
@@ -70,6 +73,22 @@ def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_ma
             print("Kayitli kalibrasyonla devam ediliyor.\n")
             return True
         print()  # kullanici sifirdan kalibrasyon istedi, asagidaki donguye devam
+
+    if otonom:
+        print(f"Otonom modda kalibrasyon bekleniyor (en fazla {otonom_maks_bekleme}s)...")
+        baslangic = time.time()
+        while time.time() - baslangic < otonom_maks_bekleme:
+            bridge.request_calibration_status()
+            time.sleep(0.3)
+            cal = bridge.get_calibration()
+            sys_v = cal["sys"] if cal["sys"] is not None else 0
+            if sys_v >= hedef_sys:
+                print(f"sys={sys_v} - otonom modda devam ediliyor.\n")
+                return True
+            time.sleep(0.5)
+        print(f"UYARI: Otonom bekleme suresi doldu (sys={cal.get('sys')}), "
+              f"mevcut durumla devam ediliyor. Sonuclar daha az hassas olabilir.\n")
+        return True
 
     print("Her parametre 3'e (mukemmel) ulasana kadar bekleniyor.\n")
 
@@ -249,7 +268,47 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
     return toplam_donus, onceki_heading
 
 
-def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
+def isinma_yap(bridge, pwm_a, pwm_b, hiz=20):
+    """
+    Demo sirasinda robotu elle kalibre etmek mumkun olmadigi icin, robotun
+    KENDI motorlariyla kucuk bir 'sallanma' hareketi yaptirarak BNO055'in
+    fusion algoritmasinin canli veriyle toparlanmasina yardimci olur.
+
+    NOT: Bu, elle '8 cizme' hareketinin YERINE GECMEZ - duz zeminde hareket
+    eden bir robot sadece yaw ekseninde donebiliyor, mag kalibrasyonunun
+    tam 3'e ulasmasi icin gereken 3 boyutlu egik hareketleri yapamaz. Bu
+    fonksiyon sadece fusion algoritmasinin EEPROM'dan yuklenen offset'lerle
+    birlikte 'canli veriyle oturmasina' yardimci olur - mag=3 garantisi vermez.
+    """
+    print("Otomatik isinma hareketi yapiliyor (elle kalibrasyon yerine)...")
+
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+    for p in [IN1, IN2, IN3, IN4]:
+        GPIO.setup(p, GPIO.OUT)
+
+    # Kucuk sag-sol-sag sallanma: her adim ~10-15 derece kadar surer (acik dongu, hassasiyet onemli degil)
+    adimlar = [("sag", 0.15), ("sol", 0.30), ("sag", 0.15)]
+
+    for yon, sure in adimlar:
+        donus_yonu_ayarla(yon)
+        pwm_a.ChangeDutyCycle(hiz)
+        pwm_b.ChangeDutyCycle(hiz)
+        time.sleep(sure)
+        motorlari_durdur(pwm_a, pwm_b)
+        time.sleep(0.2)
+
+    # Sallanma bittikten sonra sensorun toparlanmasi icin kisa bir bekleme
+    time.sleep(0.5)
+
+    bridge.request_calibration_status()
+    time.sleep(0.3)
+    cal = bridge.get_calibration()
+    print(f"Isinma sonrasi kalibrasyon -> sys={cal['sys']} gyro={cal['gyro']} "
+          f"accel={cal['accel']} mag={cal['mag']}\n")
+
+
+def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, otonom=False):
     """
     hedef_derece: kac derece donulecek (pozitif sayi, yon parametresi ile yon belirlenir)
     yon: 'sol' ya da 'sag'
@@ -286,7 +345,7 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
         pwm_a, pwm_b = motorlari_ayarla()
 
     try:
-        kalibrasyon_bekle(bridge)
+        kalibrasyon_bekle(bridge, otonom=otonom)
 
         toplam_donus = 0.0
         onceki_heading = bridge.get_heading()
@@ -295,14 +354,49 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
             return 0.0
 
         donus_yonu_ayarla(yon)
-        pwm_a.ChangeDutyCycle(HIZ_NORMAL)
-        pwm_b.ChangeDutyCycle(HIZ_NORMAL)
+        print(f"  [DEBUG] Yon ayarlandi: {yon}. IN pinleri: "
+              f"IN1={GPIO.input(IN1)} IN2={GPIO.input(IN2)} "
+              f"IN3={GPIO.input(IN3)} IN4={GPIO.input(IN4)}")
+
+        if hedef_derece > 45:
+            # Buyuk acilarda yumusak baslangic (soft-start): motoru aniden
+            # HIZ_NORMAL'a sicratmak yerine kademeli hizlandir. Ani akim
+            # sicramasi (inrush current), motor surucusunden BNO055'e
+            # EMI/gurultu binmesine yol aciyor olabilir - bu, o sicramayi
+            # yumusatmayi dener. 45 derece esigi: toplam donus suresi yeterince
+            # uzun oldugu icin ~150ms'lik rampa, motorun tork kazanmasini
+            # engellemeyecek kadar kisa bir pay kapliyor.
+            YUMUSAK_BASLANGIC_ADIMLARI = 5
+            for adim in range(1, YUMUSAK_BASLANGIC_ADIMLARI + 1):
+                gecici_hiz = HIZ_NORMAL * adim / YUMUSAK_BASLANGIC_ADIMLARI
+                pwm_a.ChangeDutyCycle(gecici_hiz)
+                pwm_b.ChangeDutyCycle(gecici_hiz)
+                time.sleep(0.03)
+            print(f"  [DEBUG] Soft-start tamamlandi, son duty: {gecici_hiz:.1f}")
+        else:
+            # Kucuk acilarda (<=45 derece) toplam donus suresi zaten kisa
+            # (orn. 17.6 derece icin ~180ms) - rampa suresi bu sureyi domine
+            # edip motorun statik surtunmeyi yenecek torka hic ulasamamasina
+            # (gercek stall) yol acabiliyor. Kucuk acilarda direkt tam hizla basla.
+            pwm_a.ChangeDutyCycle(HIZ_NORMAL)
+            pwm_b.ChangeDutyCycle(HIZ_NORMAL)
+            print(f"  [DEBUG] Direkt tam hiz uygulandi: HIZ_NORMAL={HIZ_NORMAL}")
 
         yavas_moda_gecildi = False
+        # Kucuk hedef acilarda (YAVASLAMA_ESIGI'nin altinda), 'kalan' bastan
+        # itibaren zaten esigin altinda olacagi icin yavaslama mantigi DAHA
+        # ILK adimda tetiklenip motoru aninda HIZ_YAVAS'a dusuruyordu - bu da
+        # motorun hic HIZ_NORMAL'de gercek tork/momentum kazanamamasina ve
+        # stall olmasina yol aciyordu (özellikle sol motorlarda). Bu yuzden
+        # yavaslama mantigini SADECE hedef, esikten gercekten buyukse aktif
+        # ediyoruz - kucuk hedeflerde robot ZATEN kisa surdugu icin
+        # yavaslamaya hic gerek yok, tam hizda kalip ince duzeltmeye birakiyoruz.
+        yavaslama_aktif = hedef_derece > YAVASLAMA_ESIGI
         baslangic_zamani = time.time()
         son_gecerli_veri_zamani = time.time()
         bekleyen_deger_ana = None
         MAKS_GECERLI_ANA_ADIM = 30.0  # derece - 20ms'de bundan buyuk gercek olamaz (motor bu kadar hizli donemez)
+        son_debug_zamani = 0.0
 
         # BNO055 KILITLENME tespiti: veri akisi devam etse bile (is_stale=False),
         # eger heading DEGERI belirli bir sure hic degismezse (motor aktif
@@ -312,6 +406,11 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
         # burada ise verinin ICERIGININ degisip degismedigine bakiyoruz.
         KILITLENME_ESIGI = 0.5  # saniye - bu sure boyunca heading hic degismezse kilitlenme say
                                   # (kisa tutuldu: motor tam hizdayken uzun esik = fazla kontrolsuz donus)
+        BASLAMA_PAYI = 0.8       # saniye - donus basladiktan sonra bu sure icinde kilitlenme
+                                  # KONTROLU YAPILMAZ. Motorun statik surtunmeyi yenip gercekten
+                                  # harekete gecmesi bazen ilk birkac yuz ms'yi alabiliyor - bu
+                                  # payi tanimadan kontrol edersek, gercekten calisan ama yavas
+                                  # baslayan bir donusu yanlislikla "kilitlenme" saniriz.
         DEGISIM_EPSILON = 0.3   # derece - bunun altindaki farklar "degismedi" sayilir
         son_degisim_zamani = time.time()
         son_bilinen_deger = onceki_heading
@@ -333,12 +432,23 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
 
             simdiki_heading = bridge.get_heading()
 
+            # [DEBUG] Canli goruntu - motor gercekten donuyor mu, heading
+            # gercekten degisiyor mu, ikisini ayirt edebilmek icin.
+            gecen_sure = time.time() - baslangic_zamani
+            if gecen_sure - son_debug_zamani >= 0.1:  # ~her 100ms'de bir
+                print(f"  [DEBUG] t={gecen_sure:.2f}s heading={simdiki_heading} "
+                      f"toplam_donus={toplam_donus:.1f}")
+                son_debug_zamani = gecen_sure
+
             # KILITLENME kontrolu - veri akiyor ama deger hic degismiyor mu?
+            # BASLAMA_PAYI suresi dolmadan bu kontrolu yapma (motor daha
+            # statik surtunmeyi yeniyor olabilir).
             if simdiki_heading is not None:
                 if son_bilinen_deger is None or abs(aci_farki(son_bilinen_deger, simdiki_heading)) > DEGISIM_EPSILON:
                     son_bilinen_deger = simdiki_heading
                     son_degisim_zamani = time.time()
-                elif time.time() - son_degisim_zamani > KILITLENME_ESIGI:
+                elif (gecen_sure > BASLAMA_PAYI and
+                      time.time() - son_degisim_zamani > KILITLENME_ESIGI):
                     print(f"UYARI: BNO055 KILITLENMIS gorunuyor - heading {KILITLENME_ESIGI}s'den "
                           f"uzun suredir hic degismedi ({simdiki_heading}), motor aktif donmesine ragmen. "
                           f"Sensor resetleniyor ve donus iptal ediliyor.")
@@ -358,8 +468,11 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None):
             if kalan <= TOLERANS:
                 break
 
-            # Hedefe yaklasinca yavasla (overshoot'u azaltmak icin)
-            if kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
+            # Hedefe yaklasinca yavasla (overshoot'u azaltmak icin) - SADECE
+            # hedef acinin gercekten YAVASLAMA_ESIGI'nden buyuk oldugu
+            # durumlarda (yani robotun once gercekten HIZ_NORMAL'de bir
+            # 'cruise' fazi oldugunda). Kucuk hedeflerde bu kontrolu atlariz.
+            if yavaslama_aktif and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
                 pwm_a.ChangeDutyCycle(HIZ_YAVAS)
                 pwm_b.ChangeDutyCycle(HIZ_YAVAS)
                 yavas_moda_gecildi = True

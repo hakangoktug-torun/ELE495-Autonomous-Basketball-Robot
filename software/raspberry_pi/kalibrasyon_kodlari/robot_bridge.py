@@ -52,6 +52,10 @@ class RobotBridge:
             "cal_accel": None,
             "cal_mag": None,
             "eeprom_yuklendi": None,
+            "kayitli_sys": None,
+            "kayitli_gyro": None,
+            "kayitli_accel": None,
+            "kayitli_mag": None,
         }
 
     def start(self):
@@ -79,6 +83,10 @@ class RobotBridge:
 
                 if satir.startswith("HATA"):
                     print(f"[RobotBridge] Arduino uyarisi: {satir}")
+                    continue
+
+                if satir.startswith("SAVEDCAL"):
+                    self._handle_saved_calibration_line(satir)
                     continue
 
                 if satir.startswith("CAL"):
@@ -180,6 +188,43 @@ class RobotBridge:
     def request_calibration_status(self):
         if self._ser is not None and self._ser.is_open:
             self._ser.write(b"C")
+
+    def _handle_saved_calibration_line(self, satir):
+        # Format: SAVEDCAL,sys,gyro,accel,mag,eeprom_yuklendi
+        parcalar = satir.split(",")
+        if len(parcalar) == 6:
+            try:
+                sys_v, gyro_v, accel_v, mag_v, yuklendi_v = (int(p) for p in parcalar[1:])
+            except ValueError:
+                return
+            with self._lock:
+                self._state["kayitli_sys"] = sys_v
+                self._state["kayitli_gyro"] = gyro_v
+                self._state["kayitli_accel"] = accel_v
+                self._state["kayitli_mag"] = mag_v
+                self._state["eeprom_yuklendi"] = bool(yuklendi_v)
+            print(f"[RobotBridge] KAYITLI kalibrasyon (kayit anindaki degerler) -> "
+                  f"sys={sys_v} gyro={gyro_v} accel={accel_v} mag={mag_v} "
+                  f"eeprom_yuklendi={bool(yuklendi_v)}")
+
+    def get_saved_calibration_info(self):
+        """EEPROM'a kaydedilen kalibrasyonun, KAYIT ANINDAKI kalite seviyelerini
+        dondurur (canli/su anki degerler degil). Once request_saved_calibration_info()
+        cagirmalisin."""
+        with self._lock:
+            return {
+                "sys": self._state["kayitli_sys"],
+                "gyro": self._state["kayitli_gyro"],
+                "accel": self._state["kayitli_accel"],
+                "mag": self._state["kayitli_mag"],
+                "eeprom_yuklendi": self._state["eeprom_yuklendi"],
+            }
+
+    def request_saved_calibration_info(self):
+        """Arduino'dan, EEPROM'a kaydedilmis kalibrasyonun kayit anindaki
+        kalite seviyelerini (sys/gyro/accel/mag) ister."""
+        if self._ser is not None and self._ser.is_open:
+            self._ser.write(b"G")
 
     def request_save_calibration(self):
         """Arduino'ya mevcut BNO055 kalibrasyonunu EEPROM'a kalici olarak
