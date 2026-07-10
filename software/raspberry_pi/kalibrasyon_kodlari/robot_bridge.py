@@ -226,6 +226,18 @@ class RobotBridge:
         if self._ser is not None and self._ser.is_open:
             self._ser.write(b"G")
 
+    def request_fast_mode(self):
+        """Renk sensoru okumasini gecici olarak kapatir - Arduino'nun dongu
+        hizini ~10-15Hz'den ~50-100Hz'e cikarir. Hassas zamanlama gerektiren
+        (donus gibi) islemlerden once cagir."""
+        if self._ser is not None and self._ser.is_open:
+            self._ser.write(b"F")
+
+    def request_normal_mode(self):
+        """Renk sensoru okumasini tekrar acar (hizli moddan cikar)."""
+        if self._ser is not None and self._ser.is_open:
+            self._ser.write(b"N")
+
     def request_save_calibration(self):
         """Arduino'ya mevcut BNO055 kalibrasyonunu EEPROM'a kalici olarak
         kaydetmesini soyler. Sadece kalibrasyon iyiyken (orn. sys=3) cagir."""

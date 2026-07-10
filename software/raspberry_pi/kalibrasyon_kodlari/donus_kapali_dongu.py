@@ -23,20 +23,28 @@ ENA, ENB = 12, 16
 
 # ---------- Hiz ayarlari ----------
 HIZ_NORMAL = 30      # ana donus hizi
-HIZ_YAVAS = 15        # hedefe yaklasirken yavaslama hizi
-YAVASLAMA_ESIGI = 30.0  # hedefe kalan derece bu esigin altina dusunce yavasla
+HIZ_YAVAS = 22        # hedefe yaklasirken yavaslama hizi (15'ten 22'ye - 15, ozellikle 'sol'
+                        # yonde motor stall'ina yol actigini kanitladigimiz bir duty degeriydi)
+YAVASLAMA_ESIGI = 30.0  # hedefe kalan derece bu esigin altina dusunce yavasla (1. kademe)
+COK_YAVAS_ESIGI_DONUS = 8.0  # hedefe kalan derece bu esigin altina dusunce IYICE yavasla (2. kademe)
+HIZ_COK_YAVAS_DONUS = 18     # 2. kademe hizi - HIZ_YAVAS'tan biraz dusuk, orneklem gecikmesindeki
+                               # 'kor mesafeyi' azaltir (stall esigi olan ~15'in hala uzerinde tutuluyor)
 TOLERANS = 2.0         # hedefe bu kadar derece yakinsa "ulasti" say
 ZAMAN_ASIMI = 8.0      # saniye - sensor/motor sorununda sonsuz donmeyi engeller
 
 SERIAL_PORT = "/dev/ttyUSB0"
 
 # ---------- Ince duzeltme (fine correction) ayarlari ----------
-FINE_TOLERANS = 0.5        # bu derecenin altindaki hata artik kabul edilir (1.0'dan dusuruldu - deneme)
+FINE_TOLERANS = 2.0        # bu derecenin altindaki hata artik kabul edilir. 0.5 salinima yol aciyordu
+                             # (atis kuantumu ~2-5 derece), 3.0 kullaniciya gore fazla gevsekti.
+                             # 2.0, ikisi arasinda bir denge - hala kuantumun biraz altinda oldugu
+                             # icin bazen 1 ekstra salinim atisi gerekebilir ama cok daha az riskli.
 DUZELTME_HIZ = 30           # HIZ_NORMAL ile ayni - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
 DUZELTME_MIN_SURE = 0.08    # saniye - motorun baslama gecikmesini (spin-up) guvenle asacak minimum sure
 DUZELTME_MAX_SURE = 0.15    # saniye - en uzun duzeltme atisi
 DUZELTME_SETTLE = 0.4       # her atistan sonra olcum oncesi bekleme (magnetometer/motor sakinlessin)
-MAKS_DUZELTME_DENEME = 12   # sonsuz salinim olmasin diye deneme sinirI
+MAKS_DUZELTME_DENEME = 8    # sonsuz salinim olmasin diye deneme siniri (FINE_TOLERANS artik
+                              # kuantum sinirinin uzerinde oldugu icin genelde 1-3 atis yeterli olacak)
 
 
 def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_mag=3,
@@ -191,6 +199,17 @@ def motorlari_ayarla():
 
 
 def motorlari_durdur(pwm_a, pwm_b):
+    """
+    Motorlari durdurur (coast - gucu keser, aktif frenleme yapmaz).
+
+    NOT: Once burada 'aktif frenleme' (IN1=IN2=HIGH kisa devre) denedik,
+    overshoot'u azaltmasi beklentisiyle. Ama (1) beklenen faydayi saglamadi
+    (Ana donus sonucu hala 6-9 derece fazla cikiyordu) ve (2) sik tekrarlanan
+    GPIO/PWM degisimi RPi.GPIO'nun yazilimsal PWM'inde kararsizliga yol acip
+    bazen bir motor kanalinin frende 'takili' kalmasina (tek taraflarin
+    calismasi, robotun yerinde donmek yerine kaymasi) sebep oldu. Basit
+    coast'a geri donuldu.
+    """
     pwm_a.ChangeDutyCycle(0)
     pwm_b.ChangeDutyCycle(0)
     for p in [IN1, IN2, IN3, IN4]:
@@ -216,12 +235,44 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
     kisa duzeltme atislari (pulse) yaparak hatayi azaltmaya calisir.
     Her atistan sonra durup olcum alir, gerekirse ters yonde tekrar dener.
 
+    ADAPTIF ESKALASYON: Eger art arda atislar hatada anlamli bir ilerleme
+    saglamiyorsa (robot belirli bir direncli/stall konumunda takili
+    kaliyorsa), atis suresini kademeli olarak uzatarak bu direnci
+    kirmaya calisir - sabit minimum sure (DUZELTME_MIN_SURE) bazen
+    yetersiz kalabiliyor. Eskalasyon 2.5x ile SINIRLI - daha fazlasi,
+    stall'dan kurtulunca asiri buyuk bir harekete (overshoot) yol acip
+    hatayi BASLANGICTAN DAHA KOTU hale getirebiliyor (gozlemlendi).
+
+    EN IYI SONUC GUVENLIK AGI: Fonksiyon, gordugu TUM denemeler arasindan
+    en dusuk |hata| degerine sahip olani hatirlar ve donus ne sekilde
+    biterse bitsin (limit dolsun, kilitlenme olsun, salinim olsun) HER
+    ZAMAN en iyi gorulen sonucu dondurur - boylece son atisin kotu gitmesi
+    yuzunden zaten iyi olan bir ara sonucun kaybedilmesi engellenir.
+
     Donus deger: (guncellenmis toplam_donus, guncellenmis onceki_heading)
     """
     MAKS_GECERLI_DUZELTME_ADIMI = 30.0  # derece - kisa bir atista bundan buyugu supheli sayilir
     bekleyen_deger = None
     ARDISIK_DEGISMEME_LIMITI = 3  # bu kadar atis ust uste heading'i hic degistirmezse kilitlenme say
     ardisik_degismeyen_sayisi = 0
+
+    MIN_ANLAMLI_ILERLEME = 0.5  # derece - bir atisin 'ise yaradi' sayilmasi icin gereken en az iyilesme
+    ILERLEMESIZ_ESKALASYON_ESIGI = 2  # bu kadar atis ust uste yeterli ilerleme saglamazsa sureyi uzat
+    ESKALASYON_CARPANI = 1.5  # her eskalasyonda sure kac katina cikar
+    ESKALASYON_TAVANI = 2.5  # MUTLAK ust sinir - eskiden 4.38x'e kadar cikiyordu, bu asiri overshoot'a
+                               # yol aciyordu (robot fiziksel olarak baslangictan daha kotu bir konumda
+                               # kalabiliyordu). 2.5x ile sinirlandirildi - overshoot riski azaltilir.
+    ilerlemesiz_sayisi = 0
+    eskalasyon_carpani = 1.0
+    onceki_hata_buyuklugu = None
+
+    # NOT: Onceden 'en iyi sonucu hatirlayip donme' yaklasimi denendi, ama bu
+    # YANLIS - robot FIZIKSEL olarak son atisin biraktigi yerde kalir, sadece
+    # bir sayi degistirerek 'daha iyi bir konumda' oldugumuzu iddia etmek
+    # sisteme yalan soylemek olurdu (sonraki kodlar gercek olmayan bir
+    # referanstan calisir). Bunun yerine MAKS_DUZELTME_DENEME'yi biraz
+    # artirip, eskalasyonu sinirlayarak robotun GERCEKTEN kendini
+    # duzeltebilmesi icin daha fazla sansi ayni dongu icinde tanıyoruz.
 
     for deneme in range(1, MAKS_DUZELTME_DENEME + 1):
         hata_isaretli = hedef_isaretli - toplam_donus
@@ -231,8 +282,24 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
                   f"Kalan hata: {abs(hata_isaretli):.2f} derece")
             return toplam_donus, onceki_heading
 
+        # Bir onceki atisin gercekten ise yarayip yaramadigini kontrol et
+        if onceki_hata_buyuklugu is not None:
+            ilerleme = onceki_hata_buyuklugu - abs(hata_isaretli)
+            if ilerleme < MIN_ANLAMLI_ILERLEME:
+                ilerlemesiz_sayisi += 1
+            else:
+                ilerlemesiz_sayisi = 0
+                eskalasyon_carpani = 1.0  # gercek ilerleme oldu, eskalasyonu sifirla
+
+        if ilerlemesiz_sayisi >= ILERLEMESIZ_ESKALASYON_ESIGI:
+            eskalasyon_carpani = min(eskalasyon_carpani * ESKALASYON_CARPANI, ESKALASYON_TAVANI)
+            print(f"  (Ilerleme yok - atis suresi eskalasyon carpani: {eskalasyon_carpani:.2f}x)")
+
+        onceki_hata_buyuklugu = abs(hata_isaretli)
+
         yon_bu_atis = "sag" if hata_isaretli > 0 else "sol"
-        pulse_sure = min(DUZELTME_MAX_SURE, max(DUZELTME_MIN_SURE, abs(hata_isaretli) / 200.0))
+        temel_pulse_sure = min(DUZELTME_MAX_SURE, max(DUZELTME_MIN_SURE, abs(hata_isaretli) / 200.0))
+        pulse_sure = min(DUZELTME_MAX_SURE * ESKALASYON_TAVANI, temel_pulse_sure * eskalasyon_carpani)
 
         print(f"  Duzeltme atisi #{deneme}: hata={hata_isaretli:.2f} derece, "
               f"yon={yon_bu_atis}, sure={pulse_sure:.3f}s")
@@ -279,6 +346,13 @@ def isinma_yap(bridge, pwm_a, pwm_b, hiz=20):
     tam 3'e ulasmasi icin gereken 3 boyutlu egik hareketleri yapamaz. Bu
     fonksiyon sadece fusion algoritmasinin EEPROM'dan yuklenen offset'lerle
     birlikte 'canli veriyle oturmasina' yardimci olur - mag=3 garantisi vermez.
+
+    ONEMLI: Onceki versiyon acik dongu (zamanlamaya guvenen) sallanma
+    yapiyordu - motorlar arasindaki asimetri yuzunden bu, robotun BASLADIGI
+    yone tam donmemesine (kalici bir yon kaymasina) yol aciyordu. Simdi
+    sallanmadan once/sonra heading OLCULUYOR, ve gerekirse kucuk bir
+    duzeltme atisiyla robot baslangic yonune (yaklasik olarak) geri
+    getiriliyor.
     """
     print("Otomatik isinma hareketi yapiliyor (elle kalibrasyon yerine)...")
 
@@ -287,7 +361,9 @@ def isinma_yap(bridge, pwm_a, pwm_b, hiz=20):
     for p in [IN1, IN2, IN3, IN4]:
         GPIO.setup(p, GPIO.OUT)
 
-    # Kucuk sag-sol-sag sallanma: her adim ~10-15 derece kadar surer (acik dongu, hassasiyet onemli degil)
+    baslangic_heading = bridge.get_heading()
+
+    # Kucuk sag-sol-sag sallanma: her adim ~10-15 derece kadar surer
     adimlar = [("sag", 0.15), ("sol", 0.30), ("sag", 0.15)]
 
     for yon, sure in adimlar:
@@ -300,6 +376,28 @@ def isinma_yap(bridge, pwm_a, pwm_b, hiz=20):
 
     # Sallanma bittikten sonra sensorun toparlanmasi icin kisa bir bekleme
     time.sleep(0.5)
+
+    # ---- Baslangic yonune donme kontrolu ----
+    simdiki_heading = bridge.get_heading()
+    if baslangic_heading is not None and simdiki_heading is not None:
+        yon_kaymasi = aci_farki(baslangic_heading, simdiki_heading)
+        if abs(yon_kaymasi) > 3.0:
+            print(f"  Isinma sonrasi yon kaymasi tespit edildi: {yon_kaymasi:.1f} derece, "
+                  f"baslangic yonune donuluyor...")
+            duzeltme_yonu = "sol" if yon_kaymasi > 0 else "sag"
+            duzeltme_suresi = min(0.25, max(0.05, abs(yon_kaymasi) / 100.0))
+            donus_yonu_ayarla(duzeltme_yonu)
+            pwm_a.ChangeDutyCycle(hiz)
+            pwm_b.ChangeDutyCycle(hiz)
+            time.sleep(duzeltme_suresi)
+            motorlari_durdur(pwm_a, pwm_b)
+            time.sleep(0.3)
+            son_heading = bridge.get_heading()
+            if son_heading is not None:
+                kalan_kayma = aci_farki(baslangic_heading, son_heading)
+                print(f"  Duzeltme sonrasi kalan yon kaymasi: {kalan_kayma:.1f} derece")
+        else:
+            print(f"  Isinma sonrasi yon kaymasi kabul edilebilir seviyede: {yon_kaymasi:.1f} derece")
 
     bridge.request_calibration_status()
     time.sleep(0.3)
@@ -347,6 +445,13 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
     try:
         kalibrasyon_bekle(bridge, otonom=otonom)
 
+        # HIZLI MOD: renk sensoru okumasini gecici kapatip Arduino'nun dongu
+        # hizini artiriyoruz - bu, heading verisinin cok daha guncel gelmesini
+        # saglar, 'Ana donus sonucu'nun hedefi asma miktarini azaltmasi beklenir
+        # (asiri deger, buyuk olcude ornekleme gecikmesinden kaynaklaniyordu).
+        bridge.request_fast_mode()
+        time.sleep(0.1)
+
         toplam_donus = 0.0
         onceki_heading = bridge.get_heading()
         if onceki_heading is None:
@@ -383,6 +488,7 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             print(f"  [DEBUG] Direkt tam hiz uygulandi: HIZ_NORMAL={HIZ_NORMAL}")
 
         yavas_moda_gecildi = False
+        cok_yavas_moda_gecildi_donus = False
         # Kucuk hedef acilarda (YAVASLAMA_ESIGI'nin altinda), 'kalan' bastan
         # itibaren zaten esigin altinda olacagi icin yavaslama mantigi DAHA
         # ILK adimda tetiklenip motoru aninda HIZ_YAVAS'a dusuruyordu - bu da
@@ -412,6 +518,8 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
                                   # payi tanimadan kontrol edersek, gercekten calisan ama yavas
                                   # baslayan bir donusu yanlislikla "kilitlenme" saniriz.
         DEGISIM_EPSILON = 0.3   # derece - bunun altindaki farklar "degismedi" sayilir
+        STALL_KURTARMA_ESIGI = 0.35  # saniye - HIZ_YAVAS'tayken bu sure degismezse once kurtarma dene
+                                       # (KILITLENME_ESIGI'den kisa - kurtarma, sert iptalden once denenir)
         son_degisim_zamani = time.time()
         son_bilinen_deger = onceki_heading
 
@@ -447,6 +555,18 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
                 if son_bilinen_deger is None or abs(aci_farki(son_bilinen_deger, simdiki_heading)) > DEGISIM_EPSILON:
                     son_bilinen_deger = simdiki_heading
                     son_degisim_zamani = time.time()
+                elif (yavas_moda_gecildi and gecen_sure > BASLAMA_PAYI and
+                      time.time() - son_degisim_zamani > STALL_KURTARMA_ESIGI):
+                    # HIZ_YAVAS'ta stall olmus olabilir - sert kilitlenme
+                    # tespitine gitmeden once kisa bir kurtarma atisi dene.
+                    print(f"  (STALL supheli - HIZ_YAVAS'ta takili kaldi, "
+                          f"kurtarma atisi yapiliyor...)")
+                    pwm_a.ChangeDutyCycle(HIZ_NORMAL)
+                    pwm_b.ChangeDutyCycle(HIZ_NORMAL)
+                    time.sleep(0.15)
+                    pwm_a.ChangeDutyCycle(HIZ_YAVAS)
+                    pwm_b.ChangeDutyCycle(HIZ_YAVAS)
+                    son_degisim_zamani = time.time()  # sayaci sifirla
                 elif (gecen_sure > BASLAMA_PAYI and
                       time.time() - son_degisim_zamani > KILITLENME_ESIGI):
                     print(f"UYARI: BNO055 KILITLENMIS gorunuyor - heading {KILITLENME_ESIGI}s'den "
@@ -472,7 +592,18 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             # hedef acinin gercekten YAVASLAMA_ESIGI'nden buyuk oldugu
             # durumlarda (yani robotun once gercekten HIZ_NORMAL'de bir
             # 'cruise' fazi oldugunda). Kucuk hedeflerde bu kontrolu atlariz.
-            if yavaslama_aktif and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
+            #
+            # IKI KADEMELI yavaslama: Arduino'nun renk sensoru okumasi ~50-100ms
+            # surdugu icin, heading verisi de bu hizda guncelleniyor. HIZ_YAVAS'ta
+            # bu gecikme suresince robot birkac derece 'kor' ilerliyor (olcum
+            # gecikmesi - motor coast'u degil, once oyle sanmistik). Hedefe iyice
+            # yaklasinca DAHA DA yavaslayarak bu 'kor mesafeyi' kucultuyoruz.
+            if yavaslama_aktif and kalan <= COK_YAVAS_ESIGI_DONUS and not cok_yavas_moda_gecildi_donus:
+                pwm_a.ChangeDutyCycle(HIZ_COK_YAVAS_DONUS)
+                pwm_b.ChangeDutyCycle(HIZ_COK_YAVAS_DONUS)
+                cok_yavas_moda_gecildi_donus = True
+                yavas_moda_gecildi = True  # 1. kademeyi de gecmis sayilir
+            elif yavaslama_aktif and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
                 pwm_a.ChangeDutyCycle(HIZ_YAVAS)
                 pwm_b.ChangeDutyCycle(HIZ_YAVAS)
                 yavas_moda_gecildi = True

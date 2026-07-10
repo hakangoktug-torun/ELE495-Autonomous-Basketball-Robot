@@ -316,6 +316,13 @@ def main():
         bridge.stop()
         return
 
+    # HIZLI MOD: renk sensoru okumasini bastan kapatiyoruz - bu, hem
+    # donuslerde hem duz gitmede (mesafe durma kararinda) heading/mesafe
+    # verisinin cok daha guncel gelmesini saglar. Bu test scriptinde renk
+    # verisi zaten kullanilmiyor.
+    bridge.request_fast_mode()
+    time.sleep(0.1)
+
     # PWM nesnelerini BIR KEZ olustur, tum test boyunca (donus + duz gitme)
     # ayni nesneleri kullan. RPi.GPIO'nun ayni pinde ust uste PWM
     # olusturma/yikma sirasinda bazen motoru tepkisiz birakmasi sorununu onler.
