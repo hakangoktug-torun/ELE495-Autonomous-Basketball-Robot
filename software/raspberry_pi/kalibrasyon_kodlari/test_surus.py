@@ -301,6 +301,36 @@ def guvenli_donus(hedef_derece, yon, bridge, pwm_a, pwm_b, maks_deneme=2):
     return False
 
 
+def kucuk_aci_test_ve_ana_donus(bridge, pwm_a, pwm_b, hedef_no, kucuk_aci=20.0, ana_aci=90.0):
+    """
+    Once KUCUK bir aci testi yapar (saga kucuk_aci kadar don, sonra ayni
+    miktarda sola geri don - yani net olarak yerinde kalmasi beklenir),
+    sonra normal ANA donusu (sola ana_aci) yapar.
+
+    Bu, kucuk acili donuslerin (ozellikle 'tek/iki teker dönmeme' sorununun
+    kucuk acilarda da yasanip yasanmadigini) test etmek icin eklendi.
+
+    Donus deger: True (hepsi basarili) / False (herhangi biri basarisiz)
+    """
+    print(f"\n=== {hedef_no}. HEDEF - KUCUK ACI TESTI ===")
+    print(f"Once saga {kucuk_aci} derece donuluyor (test)...")
+    if not guvenli_donus(kucuk_aci, "sag", bridge, pwm_a, pwm_b):
+        print(f"Kucuk aci testi (saga {kucuk_aci} derece) basarisiz oldu.")
+        return False
+
+    print(f"Simdi sola {kucuk_aci} derece donup baslangic yonune donuluyor...")
+    if not guvenli_donus(kucuk_aci, "sol", bridge, pwm_a, pwm_b):
+        print(f"Kucuk aci testi (geri donus, sola {kucuk_aci} derece) basarisiz oldu.")
+        return False
+
+    print(f"\n=== {hedef_no}. DONUS: {ana_aci} derece sola (ana donus) ===")
+    if not guvenli_donus(ana_aci, "sol", bridge, pwm_a, pwm_b):
+        print(f"{hedef_no}. ana donus basarisiz oldu.")
+        return False
+
+    return True
+
+
 def main():
     bridge = RobotBridge(port=SERIAL_PORT)
     bridge.start()
@@ -340,10 +370,9 @@ def main():
             print("Engel bulunamadigi icin test durduruldu.")
             return
 
-        # ---- 2) 90 derece sola don (BNO055 kapali dongu) ----
-        print("\n=== 1. DONUS: 90 derece sola ===")
-        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
-            print("Test durduruldu (1. donus basarisiz).")
+        # ---- 2) Kucuk aci testi + 90 derece sola don ----
+        if not kucuk_aci_test_ve_ana_donus(bridge, pwm_a, pwm_b, 1):
+            print("Test durduruldu (1. hedefteki donusler basarisiz).")
             return
 
         # ---- 3) Engele (30 cm) kadar duz git ----
@@ -352,10 +381,9 @@ def main():
             print("Engel bulunamadigi icin test durduruldu.")
             return
 
-        # ---- 4) Tekrar 90 derece sola don ----
-        print("\n=== 2. DONUS: 90 derece sola ===")
-        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
-            print("Test durduruldu (2. donus basarisiz).")
+        # ---- 4) Kucuk aci testi + 90 derece sola don ----
+        if not kucuk_aci_test_ve_ana_donus(bridge, pwm_a, pwm_b, 2):
+            print("Test durduruldu (2. hedefteki donusler basarisiz).")
             return
 
         # ---- 5) Engele (30 cm) kadar duz git ----
@@ -364,10 +392,9 @@ def main():
             print("Engel bulunamadigi icin test durduruldu.")
             return
 
-        # ---- 6) Tekrar 90 derece sola don ----
-        print("\n=== 3. DONUS: 90 derece sola ===")
-        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
-            print("Test durduruldu (3. donus basarisiz).")
+        # ---- 6) Kucuk aci testi + 90 derece sola don ----
+        if not kucuk_aci_test_ve_ana_donus(bridge, pwm_a, pwm_b, 3):
+            print("Test durduruldu (3. hedefteki donusler basarisiz).")
             return
 
         # ---- 7) Engele (30 cm) kadar duz git (4. kenar) ----
@@ -376,13 +403,13 @@ def main():
             print("Engel bulunamadigi icin test durduruldu.")
             return
 
-        # ---- 8) Son kez 90 derece sola don (kareyi tamamla) ----
-        print("\n=== 4. DONUS: 90 derece sola (kareyi tamamla) ===")
-        if not guvenli_donus(90, "sol", bridge, pwm_a, pwm_b):
-            print("Test durduruldu (4. donus basarisiz).")
+        # ---- 8) Kucuk aci testi + son 90 derece sola don (kareyi tamamla) ----
+        if not kucuk_aci_test_ve_ana_donus(bridge, pwm_a, pwm_b, 4):
+            print("Test durduruldu (4. hedefteki donusler basarisiz).")
             return
 
-        print("\nTest surusu tamamlandi (kare tamamlandi - toplam 4 kenar, 4 donus).")
+        print("\nTest surusu tamamlandi (kare tamamlandi - toplam 4 kenar, 4 ana donus, "
+              "her hedefte ek kucuk aci testi).")
 
     finally:
         motorlari_durdur(pwm_a, pwm_b)

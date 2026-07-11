@@ -377,27 +377,37 @@ def isinma_yap(bridge, pwm_a, pwm_b, hiz=20):
     # Sallanma bittikten sonra sensorun toparlanmasi icin kisa bir bekleme
     time.sleep(0.5)
 
-    # ---- Baslangic yonune donme kontrolu ----
-    simdiki_heading = bridge.get_heading()
-    if baslangic_heading is not None and simdiki_heading is not None:
+    # ---- Baslangic yonune donme kontrolu (tekrarli - tek atis yeterli olmayabilir) ----
+    MAKS_ISINMA_DUZELTME_DENEME = 3
+    for isinma_deneme in range(1, MAKS_ISINMA_DUZELTME_DENEME + 1):
+        simdiki_heading = bridge.get_heading()
+        if baslangic_heading is None or simdiki_heading is None:
+            break
+
         yon_kaymasi = aci_farki(baslangic_heading, simdiki_heading)
-        if abs(yon_kaymasi) > 3.0:
-            print(f"  Isinma sonrasi yon kaymasi tespit edildi: {yon_kaymasi:.1f} derece, "
-                  f"baslangic yonune donuluyor...")
-            duzeltme_yonu = "sol" if yon_kaymasi > 0 else "sag"
-            duzeltme_suresi = min(0.25, max(0.05, abs(yon_kaymasi) / 100.0))
-            donus_yonu_ayarla(duzeltme_yonu)
-            pwm_a.ChangeDutyCycle(hiz)
-            pwm_b.ChangeDutyCycle(hiz)
-            time.sleep(duzeltme_suresi)
-            motorlari_durdur(pwm_a, pwm_b)
-            time.sleep(0.3)
-            son_heading = bridge.get_heading()
-            if son_heading is not None:
-                kalan_kayma = aci_farki(baslangic_heading, son_heading)
-                print(f"  Duzeltme sonrasi kalan yon kaymasi: {kalan_kayma:.1f} derece")
-        else:
-            print(f"  Isinma sonrasi yon kaymasi kabul edilebilir seviyede: {yon_kaymasi:.1f} derece")
+        if abs(yon_kaymasi) <= 3.0:
+            if isinma_deneme == 1:
+                print(f"  Isinma sonrasi yon kaymasi kabul edilebilir seviyede: {yon_kaymasi:.1f} derece")
+            else:
+                print(f"  Duzeltme sonrasi kalan yon kaymasi kabul edilebilir: {yon_kaymasi:.1f} derece")
+            break
+
+        print(f"  Yon kaymasi tespit edildi: {yon_kaymasi:.1f} derece, "
+              f"duzeltme deneniyor ({isinma_deneme}/{MAKS_ISINMA_DUZELTME_DENEME})...")
+        duzeltme_yonu = "sol" if yon_kaymasi > 0 else "sag"
+        duzeltme_suresi = min(0.25, max(0.04, abs(yon_kaymasi) / 100.0))
+        donus_yonu_ayarla(duzeltme_yonu)
+        pwm_a.ChangeDutyCycle(hiz)
+        pwm_b.ChangeDutyCycle(hiz)
+        time.sleep(duzeltme_suresi)
+        motorlari_durdur(pwm_a, pwm_b)
+        time.sleep(0.3)
+    else:
+        son_heading = bridge.get_heading()
+        if baslangic_heading is not None and son_heading is not None:
+            kalan_kayma = aci_farki(baslangic_heading, son_heading)
+            print(f"  UYARI: {MAKS_ISINMA_DUZELTME_DENEME} denemede tam duzeltilemedi. "
+                  f"Kalan kayma: {kalan_kayma:.1f} derece")
 
     bridge.request_calibration_status()
     time.sleep(0.3)
@@ -523,6 +533,19 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         son_degisim_zamani = time.time()
         son_bilinen_deger = onceki_heading
 
+        # HIZ ANOMALISI tespiti: "tek teker donuyor" gibi durumlarda heading
+        # TAMAMEN donmaz (yukaridaki kilitlenme kontrolu bunu yakalayamaz),
+        # ama beklenenden COK daha yavas ilerler (robot pivot yerine kayarak
+        # donuyor demektir). Bunu ayri bir kontrolle yakaliyoruz: belirli bir
+        # pencerede (PENCERE_SURESI) gerceklesen aciyi, o anki duty icin
+        # beklenen minimum aciyla karsilastiriyoruz.
+        RATE_KATSAYISI_MIN = 1.2  # derece/saniye, duty basina - HIZ_NORMAL=30'da normal ~90-100 derece/s
+                                    # gozlemlendi (~3/duty), guvenlik icin bunun COK altinda bir esik (1.2/duty) kullaniyoruz
+        PENCERE_SURESI = 0.4     # saniye - bu sure icinde ne kadar donuldugune bakariz
+        pencere_baslangic_zamani = time.time()
+        pencere_baslangic_heading = onceki_heading
+        mevcut_duty = HIZ_NORMAL
+
         while True:
             if time.time() - baslangic_zamani > ZAMAN_ASIMI:
                 print("UYARI: Zaman asimi, donus zorla durduruldu (sensor/motor sorunu olabilir).")
@@ -588,6 +611,34 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             if kalan <= TOLERANS:
                 break
 
+            # HIZ ANOMALISI kontrolu: "tek teker donuyor" gibi durumlarda
+            # heading TAMAMEN donmaz ama beklenenden cok yavas ilerler.
+            # PENCERE_SURESI dolunca, o sure icinde gercekten kac derece
+            # donuldugune bakip, o anki duty icin beklenen minimumla
+            # karsilastiriyoruz.
+            if gecen_sure > BASLAMA_PAYI and time.time() - pencere_baslangic_zamani >= PENCERE_SURESI:
+                if pencere_baslangic_heading is not None and onceki_heading is not None:
+                    pencere_aci = abs(aci_farki(pencere_baslangic_heading, onceki_heading))
+                    pencere_sure_gercek = time.time() - pencere_baslangic_zamani
+                    gozlenen_oran = pencere_aci / pencere_sure_gercek if pencere_sure_gercek > 0 else 0
+                    beklenen_min_oran = mevcut_duty * RATE_KATSAYISI_MIN
+
+                    if gozlenen_oran < beklenen_min_oran:
+                        print(f"  (HIZ ANOMALISI - beklenen ~{beklenen_min_oran:.0f} derece/s, "
+                              f"gozlenen {gozlenen_oran:.0f} derece/s. Muhtemelen tek teker "
+                              f"donuyor. Kurtarma denemesi yapiliyor...)")
+                        motorlari_durdur(pwm_a, pwm_b)
+                        time.sleep(0.15)
+                        donus_yonu_ayarla(yon)
+                        pwm_a.ChangeDutyCycle(HIZ_NORMAL)
+                        pwm_b.ChangeDutyCycle(HIZ_NORMAL)
+                        time.sleep(0.15)
+                        pwm_a.ChangeDutyCycle(mevcut_duty)
+                        pwm_b.ChangeDutyCycle(mevcut_duty)
+
+                pencere_baslangic_zamani = time.time()
+                pencere_baslangic_heading = onceki_heading
+
             # Hedefe yaklasinca yavasla (overshoot'u azaltmak icin) - SADECE
             # hedef acinin gercekten YAVASLAMA_ESIGI'nden buyuk oldugu
             # durumlarda (yani robotun once gercekten HIZ_NORMAL'de bir
@@ -603,10 +654,12 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
                 pwm_b.ChangeDutyCycle(HIZ_COK_YAVAS_DONUS)
                 cok_yavas_moda_gecildi_donus = True
                 yavas_moda_gecildi = True  # 1. kademeyi de gecmis sayilir
+                mevcut_duty = HIZ_COK_YAVAS_DONUS
             elif yavaslama_aktif and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
                 pwm_a.ChangeDutyCycle(HIZ_YAVAS)
                 pwm_b.ChangeDutyCycle(HIZ_YAVAS)
                 yavas_moda_gecildi = True
+                mevcut_duty = HIZ_YAVAS
 
             time.sleep(0.02)  # ~50Hz kontrol dongusu
 
