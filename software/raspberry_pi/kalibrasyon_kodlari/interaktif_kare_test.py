@@ -1,22 +1,30 @@
 """
 ELE495 - Interaktif Rota Testi
 test_surus.py'deki 'kare cizme' mantiginin ayni, ama donus acisi/yonu SABIT
-(90 derece sola) DEGIL - her hedefe ulastiktan sonra SENDEN sorulur.
+(20 derece) DEGIL - her hedefe ulastiktan sonra SENDEN sorulur.
 
 Senaryo:
-  1) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (1. hedef)
-  2) Sana hangi yone, kac derece donmek istedigini sorar, o donusu yapar
-  3) Bir cisim 30 cm'ye kadar yaklasana kadar duz git (2. hedef)
-  4) Tekrar sorar, doner
+  1) Bir cisim 20 cm'ye kadar yaklasana kadar duz git (1. hedef)
+  2) Sana hangi yone, kac derece test etmek istedigini sorar, o kadar doner,
+     SONRA AYNI ACIYI TERS YONDE UYGULAYIP BASLANGIC YONUNE GERI DONER
+  3) Bir cisim 20 cm'ye kadar yaklasana kadar duz git (2. hedef, ayni yonde)
+  4) Tekrar sorar, test eder, geri doner
   5) 3. hedef
-  6) Tekrar sorar, doner
+  6) Tekrar sorar, test eder, geri doner
   7) 4. hedef
-  8) Biter (4. hedeften sonra don sormuyoruz, is bitti)
+  8) Biter (4. hedeften sonra test sormuyoruz, is bitti)
 
 Bu, DEMO icin degil - senin robotu test etmen icin.
 
 Bu dosyayi ayni klasore koy: software/raspberry_pi/kalibrasyon_kodlari/
 (donus_kapali_dongu.py, robot_bridge.py ve test_surus.py ile ayni yerde olmali)
+
+GUNCELLEME NOTU: Otomatik isinma hareketi (isinma_yap) KALDIRILDI -
+test_surus.py'deki ayni degisiklikle tutarli olsun diye. EEPROM'dan
+kalibrasyon zaten yukleniyor ve hizli mod (renk sensoru kapali) veri
+kalitesini yeterince artirdigi icin, isinma hareketinin sagladigi kucuk
+fayda, robotun baslangic yonunde istenmeyen kaymaya yol acma riskine
+degmiyordu.
 """
 
 import sys
@@ -27,28 +35,57 @@ import RPi.GPIO as GPIO
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from robot_bridge import RobotBridge
 from donus_kapali_dongu import (
-    donus_yap, motorlari_ayarla, motorlari_durdur, aci_farki, isinma_yap,
+    donus_yap, motorlari_ayarla, motorlari_durdur, aci_farki,
     IN1, IN2, IN3, IN4, ENA, ENB, SERIAL_PORT
 )
 from test_surus import (
     ileri_git_engel_bulunca, ileri_yon_ayarla,
-    ENGEL_ESIGI_CM,
 )
 
 TOPLAM_HEDEF_SAYISI = 4
+ENGEL_ESIGI_CM = 20.0  # bu scriptte ozel olarak 20cm - test_surus.py'nin varsayilan 30cm'sinden farkli
+
+
+def test_aci_ve_geri_don(bridge, pwm_a, pwm_b, hedef_no):
+    """
+    Kullanicidan test edilecek yon ve aciyi sorar, o kadar doner, sonra
+    AYNI aciyi TERS yonde uygulayarak baslangic yonune geri doner.
+
+    Bu, test_surus.py'deki 'kucuk_aci_test_ve_ana_donus' ile ayni mantik,
+    ama sabit 20 derece yerine SENDEN alinan yon/aci kullanilir, ve
+    donuldukten sonra yeni bir 'ana' yone gecmek yerine BASLANGIC yonune
+    geri donulur (robot bir sonraki hedefi ayni yonde aramaya devam eder).
+
+    Donus deger: True (basarili) / False (basarisiz)
+    """
+    yon, aci = yon_ve_aci_sor(hedef_no)
+
+    ters_yon = "sol" if yon == "sag" else "sag"
+
+    print(f"\n{aci} derece {yon} yone donuluyor (test)...")
+    if not guvenli_donus_interaktif(aci, yon, bridge, pwm_a, pwm_b):
+        print(f"Test donusu ({aci} derece {yon}) basarisiz oldu.")
+        return False
+
+    print(f"Simdi {aci} derece {ters_yon} yone donup baslangic yonune donuluyor...")
+    if not guvenli_donus_interaktif(aci, ters_yon, bridge, pwm_a, pwm_b):
+        print(f"Geri donus ({aci} derece {ters_yon}) basarisiz oldu.")
+        return False
+
+    return True
 
 
 def yon_ve_aci_sor(hedef_no):
     """Kullanicidan donus yonu ve acisini ister, gecerli girdi alana kadar tekrar sorar."""
     print(f"\n=== {hedef_no}. HEDEFE ULASILDI ===")
     while True:
-        yon = input("Donus yonu (sol/sag): ").strip().lower()
+        yon = input("Bu konumda test edilecek donus yonu (sol/sag): ").strip().lower()
         if yon in ("sol", "sag"):
             break
         print("Gecersiz - 'sol' ya da 'sag' yaz.")
 
     while True:
-        aci_str = input("Donus acisi (derece, orn: 45): ").strip()
+        aci_str = input("Test edilecek aci (derece, orn: 45): ").strip()
         try:
             aci = float(aci_str)
             if aci > 0:
@@ -61,9 +98,11 @@ def yon_ve_aci_sor(hedef_no):
 
 
 def guvenli_donus_interaktif(aci, yon, bridge, pwm_a, pwm_b, maks_deneme=2):
-    """test_surus.py'deki guvenli_donus ile ayni mantik - basarisizsa tekrar dener."""
+    """test_surus.py'deki guvenli_donus ile ayni mantik - basarisizsa tekrar dener.
+    otonom=True: EEPROM'dan kalibrasyon yukluyse, her seferinde 'yes' yazmani
+    beklemez, otomatik olarak devam eder."""
     for deneme in range(1, maks_deneme + 1):
-        sonuc = donus_yap(aci, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b)
+        sonuc = donus_yap(aci, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b, otonom=True)
 
         if abs(sonuc) >= aci * 0.5:
             return True
@@ -94,9 +133,17 @@ def main():
         bridge.stop()
         return
 
+    # HIZLI MOD: renk sensoru okumasini kapat - heading/mesafe verisinin
+    # cok daha guncel gelmesini saglar (test_surus.py ile tutarli).
+    bridge.request_fast_mode()
+    time.sleep(0.1)
+
     pwm_a, pwm_b = motorlari_ayarla()
 
-    isinma_yap(bridge, pwm_a, pwm_b)
+    # NOT: Otomatik isinma hareketi (kucuk sallanma) KALDIRILDI - bkz. dosya
+    # basindaki guncelleme notu. Gerekirse yeniden aktiflestirmek icin:
+    #   from donus_kapali_dongu import isinma_yap
+    #   isinma_yap(bridge, pwm_a, pwm_b)
 
     try:
         for hedef_no in range(1, TOPLAM_HEDEF_SAYISI + 1):
@@ -108,13 +155,11 @@ def main():
                 return
 
             if hedef_no == TOPLAM_HEDEF_SAYISI:
-                # Son hedefe ulasildi, artik donus sormuyoruz - is bitti.
+                # Son hedefe ulasildi, artik test sormuyoruz - is bitti.
                 break
 
-            yon, aci = yon_ve_aci_sor(hedef_no)
-
-            if not guvenli_donus_interaktif(aci, yon, bridge, pwm_a, pwm_b):
-                print("Donus basarisiz oldugu icin test durduruldu.")
+            if not test_aci_ve_geri_don(bridge, pwm_a, pwm_b, hedef_no):
+                print("Test donusu basarisiz oldugu icin test durduruldu.")
                 return
 
         print(f"\nTest tamamlandi - toplam {TOPLAM_HEDEF_SAYISI} hedefe ulasildi.")

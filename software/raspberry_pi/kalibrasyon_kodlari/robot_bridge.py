@@ -45,6 +45,7 @@ class RobotBridge:
             "g": None,
             "b": None,
             "c": None,
+            "vcc_mv": None,
             "last_update": 0.0,
             "connected": False,
             "cal_sys": None,
@@ -102,13 +103,13 @@ class RobotBridge:
                 time.sleep(0.5)
 
     def _parse_csv(self, satir):
-        # Beklenen format: IR1,IR2,Distance,Heading,R,G,B,C
+        # Beklenen format: IR1,IR2,Distance,Heading,R,G,B,C,VccMv
         parcalar = satir.split(",")
-        if len(parcalar) != 8:
+        if len(parcalar) != 9:
             return  # bozuk/eksik satir, atla
 
         try:
-            ir1, ir2, distance, heading, r, g, b, c = (float(p) for p in parcalar)
+            ir1, ir2, distance, heading, r, g, b, c, vcc_mv = (float(p) for p in parcalar)
         except ValueError:
             return
 
@@ -121,6 +122,7 @@ class RobotBridge:
             self._state["g"] = g
             self._state["b"] = b
             self._state["c"] = c
+            self._state["vcc_mv"] = vcc_mv
             self._state["last_update"] = time.time()
             self._state["connected"] = True
 
@@ -151,6 +153,14 @@ class RobotBridge:
     def get_distance(self):
         with self._lock:
             return self._state["distance"]
+
+    def get_vcc(self):
+        """Arduino'nun 5V hattinin gercek gerilimini mV cinsinden dondurur.
+        Guc yetersizligi teshisi icin kullanilabilir - dusuk deger (orn.
+        4300mV altı) motorlar calisirken sensorlere yeterli guc gitmedigini
+        gosterebilir."""
+        with self._lock:
+            return self._state["vcc_mv"]
 
     def get_ir(self):
         with self._lock:
@@ -263,7 +273,8 @@ if __name__ == "__main__":
                     f"Heading={veri['heading']:.1f} "
                     f"Distance={veri['distance']:.1f}cm "
                     f"IR=({veri['ir1']:.0f},{veri['ir2']:.0f}) "
-                    f"RGB=({veri['r']:.0f},{veri['g']:.0f},{veri['b']:.0f}) C={veri['c']:.0f}"
+                    f"RGB=({veri['r']:.0f},{veri['g']:.0f},{veri['b']:.0f}) C={veri['c']:.0f} "
+                    f"Vcc={veri['vcc_mv']:.0f}mV"
                 )
             time.sleep(0.2)
     finally:

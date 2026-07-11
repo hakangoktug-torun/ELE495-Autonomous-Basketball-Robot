@@ -23,12 +23,10 @@ ENA, ENB = 12, 16
 
 # ---------- Hiz ayarlari ----------
 HIZ_NORMAL = 30      # ana donus hizi
-HIZ_YAVAS = 22        # hedefe yaklasirken yavaslama hizi (15'ten 22'ye - 15, ozellikle 'sol'
-                        # yonde motor stall'ina yol actigini kanitladigimiz bir duty degeriydi)
+HIZ_YAVAS = 22        # hedefe yaklasirken yavaslama hizi
 YAVASLAMA_ESIGI = 30.0  # hedefe kalan derece bu esigin altina dusunce yavasla (1. kademe)
 COK_YAVAS_ESIGI_DONUS = 8.0  # hedefe kalan derece bu esigin altina dusunce IYICE yavasla (2. kademe)
-HIZ_COK_YAVAS_DONUS = 18     # 2. kademe hizi - HIZ_YAVAS'tan biraz dusuk, orneklem gecikmesindeki
-                               # 'kor mesafeyi' azaltir (stall esigi olan ~15'in hala uzerinde tutuluyor)
+HIZ_COK_YAVAS_DONUS = 18     # 2. kademe hizi
 TOLERANS = 2.0         # hedefe bu kadar derece yakinsa "ulasti" say
 ZAMAN_ASIMI = 8.0      # saniye - sensor/motor sorununda sonsuz donmeyi engeller
 
@@ -41,6 +39,7 @@ FINE_TOLERANS = 2.0        # bu derecenin altindaki hata artik kabul edilir. 0.5
                              # icin bazen 1 ekstra salinim atisi gerekebilir ama cok daha az riskli.
 DUZELTME_HIZ = 30           # HIZ_NORMAL ile ayni - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
 DUZELTME_MIN_SURE = 0.08    # saniye - motorun baslama gecikmesini (spin-up) guvenle asacak minimum sure
+                              # artik daha fazla aciya denk geliyor, kisaltilmasi gerekti)
 DUZELTME_MAX_SURE = 0.15    # saniye - en uzun duzeltme atisi
 DUZELTME_SETTLE = 0.4       # her atistan sonra olcum oncesi bekleme (magnetometer/motor sakinlessin)
 MAKS_DUZELTME_DENEME = 8    # sonsuz salinim olmasin diye deneme siniri (FINE_TOLERANS artik
@@ -499,15 +498,19 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
 
         yavas_moda_gecildi = False
         cok_yavas_moda_gecildi_donus = False
-        # Kucuk hedef acilarda (YAVASLAMA_ESIGI'nin altinda), 'kalan' bastan
-        # itibaren zaten esigin altinda olacagi icin yavaslama mantigi DAHA
-        # ILK adimda tetiklenip motoru aninda HIZ_YAVAS'a dusuruyordu - bu da
-        # motorun hic HIZ_NORMAL'de gercek tork/momentum kazanamamasina ve
-        # stall olmasina yol aciyordu (özellikle sol motorlarda). Bu yuzden
-        # yavaslama mantigini SADECE hedef, esikten gercekten buyukse aktif
-        # ediyoruz - kucuk hedeflerde robot ZATEN kisa surdugu icin
-        # yavaslamaya hic gerek yok, tam hizda kalip ince duzeltmeye birakiyoruz.
-        yavaslama_aktif = hedef_derece > YAVASLAMA_ESIGI
+        # ONCEKI YAKLASIM: yavaslama SADECE hedef_derece > YAVASLAMA_ESIGI (30)
+        # oldugunda aktifti - kucuk hedeflerde (<=30 derece) robot hic
+        # yavaslamadan tam hizda gidip HEP asiyordu (20 derece hedefte 7-10
+        # derece asma gozlemlendi). Bunun sebebi, kucuk hedeflerde 'kalan'
+        # DAHA ILK adimda esigin altinda olacagi icin yavaslamanin ANINDA
+        # (hic momentum kazanmadan) tetiklenip stall'a yol acmasiydi.
+        #
+        # YENI YAKLASIM: Yavaslamayi hedef buyuklugune gore degil, bir
+        # MINIMUM SURE/momentum kazanma payina gore kapatiyoruz - bu sayede
+        # kucuk hedefler de yavaslamadan faydalanabiliyor, ama yine de
+        # motor once gercekten HIZ_NORMAL'de bir sure calisip tork/momentum
+        # kazanmadan yavaslama tetiklenmiyor.
+        MINIMUM_HIZLI_SURE = 0.15  # saniye - bu sure dolmadan yavaslama kontrolu YAPILMAZ
         baslangic_zamani = time.time()
         son_gecerli_veri_zamani = time.time()
         bekleyen_deger_ana = None
@@ -564,11 +567,14 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             simdiki_heading = bridge.get_heading()
 
             # [DEBUG] Canli goruntu - motor gercekten donuyor mu, heading
-            # gercekten degisiyor mu, ikisini ayirt edebilmek icin.
+            # gercekten degisiyor mu, Vcc geriliminde dusme var mi (guc
+            # yetersizligi teshisi), ikisini ayirt edebilmek icin.
             gecen_sure = time.time() - baslangic_zamani
             if gecen_sure - son_debug_zamani >= 0.1:  # ~her 100ms'de bir
+                vcc = bridge.get_vcc()
+                vcc_str = f"{vcc:.0f}mV" if vcc is not None else "?"
                 print(f"  [DEBUG] t={gecen_sure:.2f}s heading={simdiki_heading} "
-                      f"toplam_donus={toplam_donus:.1f}")
+                      f"toplam_donus={toplam_donus:.1f} Vcc={vcc_str}")
                 son_debug_zamani = gecen_sure
 
             # KILITLENME kontrolu - veri akiyor ama deger hic degismiyor mu?
@@ -649,13 +655,16 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             # bu gecikme suresince robot birkac derece 'kor' ilerliyor (olcum
             # gecikmesi - motor coast'u degil, once oyle sanmistik). Hedefe iyice
             # yaklasinca DAHA DA yavaslayarak bu 'kor mesafeyi' kucultuyoruz.
-            if yavaslama_aktif and kalan <= COK_YAVAS_ESIGI_DONUS and not cok_yavas_moda_gecildi_donus:
+            gercek_gecen_sure = time.time() - baslangic_zamani
+            yavaslama_izinli = gercek_gecen_sure > MINIMUM_HIZLI_SURE
+
+            if yavaslama_izinli and kalan <= COK_YAVAS_ESIGI_DONUS and not cok_yavas_moda_gecildi_donus:
                 pwm_a.ChangeDutyCycle(HIZ_COK_YAVAS_DONUS)
                 pwm_b.ChangeDutyCycle(HIZ_COK_YAVAS_DONUS)
                 cok_yavas_moda_gecildi_donus = True
                 yavas_moda_gecildi = True  # 1. kademeyi de gecmis sayilir
                 mevcut_duty = HIZ_COK_YAVAS_DONUS
-            elif yavaslama_aktif and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
+            elif yavaslama_izinli and kalan <= YAVASLAMA_ESIGI and not yavas_moda_gecildi:
                 pwm_a.ChangeDutyCycle(HIZ_YAVAS)
                 pwm_b.ChangeDutyCycle(HIZ_YAVAS)
                 yavas_moda_gecildi = True
