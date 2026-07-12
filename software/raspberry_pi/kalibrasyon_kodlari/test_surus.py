@@ -44,11 +44,15 @@ MAKS_DUZELTME = 10.0      # duty cinsinden - toplam (P+I) duzeltmenin ustsiniri
 MAKS_INTEGRAL = 15.0      # integral birikiminin kendi ustsiniri (anti-windup)
 
 # ---------- Duz gitme hiz/kalibrasyon ayarlari ----------
-# Onceki kalibrasyon notlarindan: SOL_HIZ=25, SAG_HIZ=28 (+3 offset sag kaymayi
-# duzeltiyordu), CM_PER_SANIYE=23.5 (tam bu degerler duz gitme icin gecerliydi).
-SOL_HIZ = 25
-SAG_HIZ = 28
-CM_PER_SANIYE = 23.5
+# GUNCELLEME: 6V motor / 11.1V (3S) pil uyumsuzlugu nedeniyle dusuk duty'lerde
+# motorlar marjinal/yetersiz tork bolgesinde kaliyordu - rastgele teker
+# tutuklugunun asil sebebi. 1.5x/2x fazla geldi (BNO055 vs. baglanti sorunlari
+# buyudu), simdi ORTA bir deneme olarak 1.2x kullaniyoruz.
+# ONEMLI: CM_PER_SANIYE artik hafifce GECERSIZ olabilir - hiz degistigi icin
+# yeniden kalibre edilmesi gerekebilir (ileri_git_sabit_mesafe kullanan yerlerde).
+SOL_HIZ = 30
+SAG_HIZ = 34
+CM_PER_SANIYE = 23.5  # UYARI: bu deger eski hiz icin kalibre edilmisti, hafif hatali olabilir
 
 ENGEL_ESIGI_CM = 30.0     # bu mesafenin altina inince dur
 
@@ -68,10 +72,10 @@ def vcc_kontrol_et(vcc_mv):
               f"(esik: {VCC_TAKIP['dusuk_gerilim_esigi']}mV) - guc kaynagi "
               f"yetersiz kalabilir.")
         VCC_TAKIP["uyari_verildi"] = True
-YAVASLAMA_MESAFE_FARKI = 15.0  # esige bu kadar cm kala yavasla (1. kademe)
-HIZ_YAVAS_ENGEL = 22       # 1. kademe yavaslama hizi
-COK_YAVAS_MESAFE_FARKI = 5.0   # esige bu kadar cm kala IYICE yavasla (2. kademe)
-HIZ_COK_YAVAS_ENGEL = 20   # 2. kademe (son yaklasim) hizi
+YAVASLAMA_MESAFE_FARKI = 18.0  # esige bu kadar cm kala yavasla (1. kademe) (15'ten 18'e - 1.2x)
+HIZ_YAVAS_ENGEL = 26       # 1. kademe yavaslama hizi (22'den 26'ya - 1.2x)
+COK_YAVAS_MESAFE_FARKI = 6.0   # esige bu kadar cm kala IYICE yavasla (2. kademe) (5'ten 6'ya)
+HIZ_COK_YAVAS_ENGEL = 24   # 2. kademe (son yaklasim) hizi (20'den 24'e - 1.2x)
 ILERI_ADIM_CM = 20.0      # her iki donusten sonra gidilecek mesafe
 MAKS_ENGEL_BEKLEME = 20.0  # saniye - engel hic bulunamazsa guvenlik siniri
 

@@ -29,7 +29,7 @@ from donus_kapali_dongu import (
     IN1, IN2, IN3, IN4
 )
 
-HIZ = 30           # HIZ_NORMAL ile ayni - kanitlanmis tam guc
+HIZ = 36           # HIZ_NORMAL ile ayni (guncellendi - 1.2x)
 CALISMA_SURESI = 1.0  # saniye - her denemede motor bu kadar sure calisir
 DENEME_SAYISI = 15    # her yon icin kac kez tekrar edilecek
 
