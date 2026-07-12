@@ -112,7 +112,7 @@ def main():
     try:
         # ---- 1) 40 derece saga don ----
         print("\n=== 1. DONUS: 40 derece saga ===")
-        if not guvenli_donus(37, "sag", bridge, pwm_a, pwm_b):
+        if not guvenli_donus(38, "sag", bridge, pwm_a, pwm_b):
             print("Test durduruldu (1. donus basarisiz).")
             return
 
@@ -135,7 +135,7 @@ def main():
 
         # ---- 5) 75 derece sola don ----
         print("\n=== 5. DONUS: 75 derece sola ===")
-        if not guvenli_donus(73, "sol", bridge, pwm_a, pwm_b):
+        if not guvenli_donus(74, "sol", bridge, pwm_a, pwm_b):
             print("Test durduruldu (5. donus basarisiz).")
             return
 
@@ -154,7 +154,7 @@ def main():
 
         # ---- 8) 85 derece sola don ----
         print("\n=== 8. DONUS: 85 derece sola ===")
-        if not guvenli_donus(83, "sol", bridge, pwm_a, pwm_b):
+        if not guvenli_donus(85, "sol", bridge, pwm_a, pwm_b):
             print("Test durduruldu (8. donus basarisiz).")
             return
 
