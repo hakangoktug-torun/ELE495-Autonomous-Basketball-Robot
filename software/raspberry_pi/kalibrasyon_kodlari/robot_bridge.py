@@ -237,14 +237,15 @@ class RobotBridge:
             self._ser.write(b"G")
 
     def request_fast_mode(self):
-        """Renk sensoru okumasini gecici olarak kapatir - Arduino'nun dongu
-        hizini ~10-15Hz'den ~50-100Hz'e cikarir. Hassas zamanlama gerektiren
-        (donus gibi) islemlerden once cagir."""
+        """Arduino'nun genel dongu bekleme araligini kisaltir (~50ms -> ~10ms),
+        heading guncelleme hizini artirir. NOT: renk sensoruyle artik ilgisi
+        yok - renk okumasi artik bloklamiyor (dogrudan register okumasi),
+        bu komuttan bagimsiz olarak her zaman calisir."""
         if self._ser is not None and self._ser.is_open:
             self._ser.write(b"F")
 
     def request_normal_mode(self):
-        """Renk sensoru okumasini tekrar acar (hizli moddan cikar)."""
+        """Dongu bekleme araligini normale (~50ms) dondurur."""
         if self._ser is not None and self._ser.is_open:
             self._ser.write(b"N")
 
