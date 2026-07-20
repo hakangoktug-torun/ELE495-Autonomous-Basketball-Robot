@@ -22,12 +22,12 @@ IN1, IN2, IN3, IN4 = 5, 6, 13, 26
 ENA, ENB = 12, 16
 
 # ---------- Hiz ayarlari ----------
-HIZ_NORMAL = 42      # ana donus hizi (30'dan 42'ye - 1.4x, atici eklenince tekerlerin bazen
-                       # yetersiz kalip stall'a girmesi uzerine 1.2x'ten yukseltildi)
-HIZ_YAVAS = 31        # hedefe yaklasirken yavaslama hizi (22'den 31'e - 1.4x)
-YAVASLAMA_ESIGI = 42.0  # hedefe kalan derece bu esigin altina dusunce yavasla (1. kademe) (30'dan 42'ye - 1.4x)
-COK_YAVAS_ESIGI_DONUS = 11.0  # hedefe kalan derece bu esigin altina dusunce IYICE yavasla (2. kademe) (8'den 11'e - 1.4x)
-HIZ_COK_YAVAS_DONUS = 25     # 2. kademe hizi (18'den 25'e - 1.4x)
+HIZ_NORMAL = 45      # ana donus hizi (30'dan 45'ye - 1.5x, sag donuste asma/sag arka
+                       # teker tutuklugu devam ettigi icin 1.4x'ten yukseltildi)
+HIZ_YAVAS = 33        # hedefe yaklasirken yavaslama hizi (31'den 33'e - 1.5x)
+YAVASLAMA_ESIGI = 45.0  # hedefe kalan derece bu esigin altina dusunce yavasla (1. kademe) (42'den 45'e - 1.5x)
+COK_YAVAS_ESIGI_DONUS = 12.0  # hedefe kalan derece bu esigin altina dusunce IYICE yavasla (2. kademe) (11'den 12'ye - 1.5x)
+HIZ_COK_YAVAS_DONUS = 27     # 2. kademe hizi (25'ten 27'ye - 1.5x)
 TOLERANS = 2.0         # hedefe bu kadar derece yakinsa "ulasti" say
 ZAMAN_ASIMI = 8.0      # saniye - sensor/motor sorununda sonsuz donmeyi engeller
 
@@ -38,9 +38,9 @@ FINE_TOLERANS = 2.0        # bu derecenin altindaki hata artik kabul edilir. 0.5
                              # (atis kuantumu ~2-5 derece), 3.0 kullaniciya gore fazla gevsekti.
                              # 2.0, ikisi arasinda bir denge - hala kuantumun biraz altinda oldugu
                              # icin bazen 1 ekstra salinim atisi gerekebilir ama cok daha az riskli.
-DUZELTME_HIZ = 42           # HIZ_NORMAL ile ayni (1.4x) - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
-DUZELTME_MIN_SURE = 0.057   # saniye - (0.08'den 0.057'ye - DUZELTME_HIZ 1.4x arttigi icin orantili kisaltildi)
-DUZELTME_MAX_SURE = 0.107   # saniye - en uzun duzeltme atisi (0.15'ten 0.107'ye - 1.4x)
+DUZELTME_HIZ = 45           # HIZ_NORMAL ile ayni (1.5x) - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
+DUZELTME_MIN_SURE = 0.053   # saniye - (0.057'den 0.053'e - DUZELTME_HIZ 1.5x arttigi icin orantili kisaltildi)
+DUZELTME_MAX_SURE = 0.10    # saniye - en uzun duzeltme atisi (0.107'den 0.10'a - 1.5x)
 DUZELTME_SETTLE = 0.4       # her atistan sonra olcum oncesi bekleme (magnetometer/motor sakinlessin)
 MAKS_DUZELTME_DENEME = 8    # sonsuz salinim olmasin diye deneme siniri (FINE_TOLERANS artik
                               # kuantum sinirinin uzerinde oldugu icin genelde 1-3 atis yeterli olacak)
@@ -334,7 +334,7 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
     return toplam_donus, onceki_heading
 
 
-def isinma_yap(bridge, pwm_a, pwm_b, hiz=28):
+def isinma_yap(bridge, pwm_a, pwm_b, hiz=30):
     """
     Demo sirasinda robotu elle kalibre etmek mumkun olmadigi icin, robotun
     KENDI motorlariyla kucuk bir 'sallanma' hareketi yaptirarak BNO055'in

@@ -48,11 +48,12 @@ MAKS_INTEGRAL = 15.0      # integral birikiminin kendi ustsiniri (anti-windup)
 # motorlar marjinal/yetersiz tork bolgesinde kaliyordu - rastgele teker
 # tutuklugunun asil sebebiydi. Atici (ESC+ucus motorlari) eklenince ek yuk/
 # elektriksel gurultu bindigi icin tekerler yine bazen yetersiz kalip stall'a
-# girmeye basladi - 1.2x yetersiz kaldigi icin 1.4x'e cikarildi.
+# girmeye basladi - 1.2x yetersiz kaldigi icin 1.4x'e, sonra sag donuste asma/
+# sag arka teker tutuklugu devam ettigi icin 1.5x'e cikarildi.
 # ONEMLI: CM_PER_SANIYE artik hafifce GECERSIZ olabilir - hiz degistigi icin
 # yeniden kalibre edilmesi gerekebilir (ileri_git_sabit_mesafe kullanan yerlerde).
-SOL_HIZ = 35
-SAG_HIZ = 39
+SOL_HIZ = 38
+SAG_HIZ = 42
 CM_PER_SANIYE = 23.5  # UYARI: bu deger eski hiz icin kalibre edilmisti, hafif hatali olabilir
 
 ENGEL_ESIGI_CM = 30.0     # bu mesafenin altina inince dur
@@ -73,10 +74,10 @@ def vcc_kontrol_et(vcc_mv):
               f"(esik: {VCC_TAKIP['dusuk_gerilim_esigi']}mV) - guc kaynagi "
               f"yetersiz kalabilir.")
         VCC_TAKIP["uyari_verildi"] = True
-YAVASLAMA_MESAFE_FARKI = 21.0  # esige bu kadar cm kala yavasla (1. kademe) (15'ten 21'e - 1.4x)
-HIZ_YAVAS_ENGEL = 31       # 1. kademe yavaslama hizi (22'den 31'e - 1.4x)
-COK_YAVAS_MESAFE_FARKI = 7.0   # esige bu kadar cm kala IYICE yavasla (2. kademe) (5'ten 7'ye - 1.4x)
-HIZ_COK_YAVAS_ENGEL = 28   # 2. kademe (son yaklasim) hizi (20'den 28'e - 1.4x)
+YAVASLAMA_MESAFE_FARKI = 22.5  # esige bu kadar cm kala yavasla (1. kademe) (21'den 22.5'e - 1.5x)
+HIZ_YAVAS_ENGEL = 33       # 1. kademe yavaslama hizi (31'den 33'e - 1.5x)
+COK_YAVAS_MESAFE_FARKI = 7.5   # esige bu kadar cm kala IYICE yavasla (2. kademe) (7'den 7.5'e - 1.5x)
+HIZ_COK_YAVAS_ENGEL = 30   # 2. kademe (son yaklasim) hizi (28'den 30'a - 1.5x)
 ILERI_ADIM_CM = 20.0      # her iki donusten sonra gidilecek mesafe
 MAKS_ENGEL_BEKLEME = 20.0  # saniye - engel hic bulunamazsa guvenlik siniri
 
