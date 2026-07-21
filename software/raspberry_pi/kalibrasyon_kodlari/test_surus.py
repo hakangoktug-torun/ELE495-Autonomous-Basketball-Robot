@@ -21,14 +21,6 @@ ONEMLI VARSAYIM: Duz ileri gitme icin motor yon pinlerini tahmin ederek yazdim
 ayni sinyali alir' mantigina ters, cunku duz gitmede motorlar TERS yonde
 komutlanmali - fiziksel montaj karsilikli oldugu icin). Eger robot ilk testte
 GERI giderse, ILERI_IN_PATTERN degiskenini asagida ters cevir.
-
-GUNCELLEME (duz gitme hassasiyeti): Kontrolor PI'dan PID'ye tamamlandi.
-DUZELTME_KAZANCI_D eklendi - hatanin ANI degisim hizina (turev) tepki verir,
-ozellikle tekerlek kaymasi/ani sapma gibi HIZLI olaylari, integral terimi
-biriktirmeyi beklemeden hemen bastirir. Bu, PI kontrolorun 'gec tepki verme'
-sorununu (hata buyuyup integral birikene kadar gozle gorulur sapma olmasi)
-azaltmayi hedefler. D terimi sensor gurultusune duyarlidir - eger robot
-titremeye/sallanmaya baslarsa DUZELTME_KAZANCI_D'yi dusur.
 """
 
 import sys
@@ -48,15 +40,7 @@ DUZELTME_KAZANCI = 0.4    # (P) derece basina duty duzeltme miktari
 DUZELTME_KAZANCI_I = 0.03  # (I) kalici/sabit asimetriyi (motor farki) zamanla sifirlamak icin
                              # (0.08'den 0.03'e dusuruldu - integral terimi hatayi zamanla
                              # biriktirip asiri duzeltmeye/erken rota kaymasina yol acabiliyordu)
-
-# YENI: (D) - hatanin ANI degisim hizina (turev) tepki verir. Ozellikle
-# tekerlek kaymasi/ani sapma gibi HIZLI olan sapmalari, P+I'nin gec kalan
-# tepkisini beklemeden aninda bastirmayi hedefler. Kucuk baslatildi - sensor
-# gurultusune duyarli oldugu icin, robot titremeye baslarsa bu degeri dusur;
-# sapmalara tepkisi yetersiz kaliyorsa kademeli artir (0.05 -> 0.08 -> 0.1 gibi).
-DUZELTME_KAZANCI_D = 0.05
-
-MAKS_DUZELTME = 10.0      # duty cinsinden - toplam (P+I+D) duzeltmenin ustsiniri
+MAKS_DUZELTME = 10.0      # duty cinsinden - toplam (P+I) duzeltmenin ustsiniri
 MAKS_INTEGRAL = 15.0      # integral birikiminin kendi ustsiniri (anti-windup)
 
 # ---------- Duz gitme hiz/kalibrasyon ayarlari ----------
@@ -117,7 +101,7 @@ def ileri_yon_ayarla():
 def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
     """
     Sabit mesafe ileri gider. bridge verilirse, BNO055 heading feedback ile
-    sapmayi (saga/sola kayma) anlik olarak duzeltir (PID) - bridge verilmezse
+    sapmayi (saga/sola kayma) anlik olarak duzeltir - bridge verilmezse
     eskisi gibi acik dongu (duzeltmesiz) calisir.
     """
     sure = mesafe_cm / CM_PER_SANIYE
@@ -132,13 +116,12 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
         motorlari_durdur(pwm_a, pwm_b)
         return
 
-    # ---- Kapali dongu: hedef heading'i koru (PID kontrolor) ----
+    # ---- Kapali dongu: hedef heading'i koru (PI kontrolor) ----
     hedef_heading = bridge.get_heading()
     print(f"  [DEBUG] Hedef heading: {hedef_heading}")
     baslangic = time.time()
     adim_sayaci = 0
     integral = 0.0
-    onceki_hata = 0.0
     son_zaman = baslangic
 
     while time.time() - baslangic < sure:
@@ -156,12 +139,7 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
             integral += hata * dt
             integral = max(-MAKS_INTEGRAL, min(MAKS_INTEGRAL, integral))  # anti-windup
 
-            turev = (hata - onceki_hata) / dt if dt > 0 else 0.0
-            onceki_hata = hata
-
-            duzeltme = (DUZELTME_KAZANCI * hata
-                        + DUZELTME_KAZANCI_I * integral
-                        + DUZELTME_KAZANCI_D * turev)
+            duzeltme = DUZELTME_KAZANCI * hata + DUZELTME_KAZANCI_I * integral
             duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, duzeltme))
 
             sol_duty = max(0, min(100, SOL_HIZ - duzeltme))
@@ -191,7 +169,7 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     Esige iki kademeli yavaslama uygulanir (once YAVASLAMA_MESAFE_FARKI,
     sonra COK_YAVAS_MESAFE_FARKI kala) - boylece durma ani daha hassas olur,
     overshoot (esigi fazla gecme) azalir. Ayrica BNO055 heading feedback ile
-    saga/sola kaymayi (drift) anlik olarak duzeltir (PID).
+    saga/sola kaymayi (drift) anlik olarak duzeltir.
 
     ONEMLI: Ultrasonik sensor (HC-SR04) acili yuzeylerden/duvar koselerinden
     yansiyinca (multipath) tek seferlik, gercek olmayan yakin mesafe okumalari
@@ -216,7 +194,6 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     GEREKEN_ARDISIK_OKUMA = 3
     son_islenen_zaman_damgasi = None
     integral = 0.0
-    onceki_hata = 0.0
     son_zaman = time.time()
 
     # STALL tespiti: yavaslama asamasinda mesafe uzun sure hic degismezse,
@@ -245,19 +222,14 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
         dt = simdi - son_zaman
         son_zaman = simdi
 
-        # ---- Heading feedback ile saga/sola kaymayi duzelt (PID kontrolor) ----
+        # ---- Heading feedback ile saga/sola kaymayi duzelt (PI kontrolor) ----
         if simdiki_heading is not None and hedef_heading is not None:
             hata = aci_farki(hedef_heading, simdiki_heading)
 
             integral += hata * dt
             integral = max(-MAKS_INTEGRAL, min(MAKS_INTEGRAL, integral))  # anti-windup
 
-            turev = (hata - onceki_hata) / dt if dt > 0 else 0.0
-            onceki_hata = hata
-
-            duzeltme = (DUZELTME_KAZANCI * hata
-                        + DUZELTME_KAZANCI_I * integral
-                        + DUZELTME_KAZANCI_D * turev)
+            duzeltme = DUZELTME_KAZANCI * hata + DUZELTME_KAZANCI_I * integral
             duzeltme = max(-MAKS_DUZELTME, min(MAKS_DUZELTME, duzeltme))
         else:
             duzeltme = 0.0
