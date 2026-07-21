@@ -7,6 +7,17 @@ Kullanim ornegi (dosyanin sonundaki main() icinde):
 
 Bu dosyayi ayni klasore koy: software/raspberry_pi/kalibrasyon_kodlari/
 heading_bridge.py'nin bir ust dizinde (software/raspberry_pi/) oldugunu varsayiyorum.
+
+GUNCELLEME (hassasiyet artirma):
+- MOMENTUM_PAYI_DERECE eklendi: motor coast'a gectikten sonra ataletle
+  birkac derece daha donmeye devam ediyordu (gozlemlenen: ~2.6-4.1 derece).
+  Bu payi ana donus durma esiginden ONCEDEN dusuyoruz, boylece robot
+  hedefin biraz ALTINDA durup ince_duzeltme_yap SADECE ayni yonde kucuk
+  atislarla tamamliyor - hedefi asma riski pratikte ortadan kalkiyor.
+- GUVENLIK_CARPANI eklendi (ince_duzeltme_yap icinde): her duzeltme atisi
+  kasitli olarak biraz kisa tutuluyor (hesaplanan surenin %80'i), boylece
+  duzeltme atislari da hedefi asmak yerine "az kalip bir atis daha yapma"
+  tarafinda kaliyor.
 """
 
 import sys
@@ -29,21 +40,38 @@ YAVASLAMA_ESIGI = 45.0  # hedefe kalan derece bu esigin altina dusunce yavasla (
 COK_YAVAS_ESIGI_DONUS = 12.0  # hedefe kalan derece bu esigin altina dusunce IYICE yavasla (2. kademe) (11'den 12'ye - 1.5x)
 HIZ_COK_YAVAS_DONUS = 27     # 2. kademe hizi (25'ten 27'ye - 1.5x)
 TOLERANS = 2.0         # hedefe bu kadar derece yakinsa "ulasti" say
+
+# YENI: motor coast'a gectikten sonra ataletle donmeye devam ediyor. Bu payi
+# ana donus durma esiginden ONCEDEN dusuyoruz - boylece robot hedefin biraz
+# ALTINDA durur, ince_duzeltme_yap SADECE ayni yonde kucuk atislarla
+# tamamlar. Gozlemlenen coast-overshoot ~2.6-4.1 derece araliginda idi,
+# 3.0 derece guvenlik payi olarak secildi. Robot hala hedefi asiyorsa
+# bu degeri 4-5'e cikar; ince duzeltme cok fazla atis yapiyorsa 2-2.5'e indir.
+MOMENTUM_PAYI_DERECE = 3.0
+
 ZAMAN_ASIMI = 8.0      # saniye - sensor/motor sorununda sonsuz donmeyi engeller
 
 SERIAL_PORT = "/dev/ttyUSB0"
 
 # ---------- Ince duzeltme (fine correction) ayarlari ----------
-FINE_TOLERANS = 2.0        # bu derecenin altindaki hata artik kabul edilir. 0.5 salinima yol aciyordu
-                             # (atis kuantumu ~2-5 derece), 3.0 kullaniciya gore fazla gevsekti.
-                             # 2.0, ikisi arasinda bir denge - hala kuantumun biraz altinda oldugu
-                             # icin bazen 1 ekstra salinim atisi gerekebilir ama cok daha az riskli.
+FINE_TOLERANS = 1.0        # bu derecenin altindaki hata artik kabul edilir. (2.0'dan 1.0'a -
+                             # son testlerde atis basina ~1-2 derecelik ilerleme gozlemlendi,
+                             # yani kuantum artik yeterince ince - 1.0 hedefi artik guvenli.)
 DUZELTME_HIZ = 45           # HIZ_NORMAL ile ayni (1.5x) - kisa atislarda dusuk duty tekerlegi hic hareket ettirmiyor
 DUZELTME_MIN_SURE = 0.053   # saniye - (0.057'den 0.053'e - DUZELTME_HIZ 1.5x arttigi icin orantili kisaltildi)
+DUZELTME_MIN_SURE_INCE = 0.03  # saniye - hata kucukken (asagidaki INCE_ESIGI altinda) kullanilan
+                                 # DAHA KISA atis suresi - 1 derece hedefe yaklasirken normal minimum
+                                 # sure bile fazla agresif kalabiliyor, bu daha ince bir adim saglar
+INCE_ESIGI = 3.0            # derece - hata bu esigin altindaysa DUZELTME_MIN_SURE_INCE kullanilir
 DUZELTME_MAX_SURE = 0.10    # saniye - en uzun duzeltme atisi (0.107'den 0.10'a - 1.5x)
 DUZELTME_SETTLE = 0.4       # her atistan sonra olcum oncesi bekleme (magnetometer/motor sakinlessin)
-MAKS_DUZELTME_DENEME = 8    # sonsuz salinim olmasin diye deneme siniri (FINE_TOLERANS artik
-                              # kuantum sinirinin uzerinde oldugu icin genelde 1-3 atis yeterli olacak)
+MAKS_DUZELTME_DENEME = 10   # sonsuz salinim olmasin diye deneme siniri (8'den 10'a - FINE_TOLERANS
+                              # sikilastigi icin (1.0) bazen 1-2 atis daha gerekebilir)
+
+# YENI: her duzeltme atisi kasitli olarak biraz kisa tutulur (hesaplanan
+# surenin bu orani kadar uygulanir). "Hep az tarafta kal, fazla gidip geri
+# donmek yerine bir atis daha yap" prensibi - hedefi asma riskini azaltir.
+GUVENLIK_CARPANI = 0.8
 
 
 def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_mag=3,
@@ -207,7 +235,8 @@ def motorlari_durdur(pwm_a, pwm_b):
     GPIO/PWM degisimi RPi.GPIO'nun yazilimsal PWM'inde kararsizliga yol acip
     bazen bir motor kanalinin frende 'takili' kalmasina (tek taraflarin
     calismasi, robotun yerinde donmek yerine kaymasi) sebep oldu. Basit
-    coast'a geri donuldu.
+    coast'a geri donuldu. (Bunun yerine MOMENTUM_PAYI_DERECE ile erken
+    durma stratejisi kullaniliyor - yukariya bakin.)
     """
     pwm_a.ChangeDutyCycle(0)
     pwm_b.ChangeDutyCycle(0)
@@ -247,6 +276,9 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
     biterse bitsin (limit dolsun, kilitlenme olsun, salinim olsun) HER
     ZAMAN en iyi gorulen sonucu dondurur - boylece son atisin kotu gitmesi
     yuzunden zaten iyi olan bir ara sonucun kaybedilmesi engellenir.
+
+    YENI: Her pulse suresi GUVENLIK_CARPANI ile kasitli olarak kisaltilir -
+    "hep az tarafta kal" prensibi, hedefi asma riskini azaltir.
 
     Donus deger: (guncellenmis toplam_donus, guncellenmis onceki_heading)
     """
@@ -297,8 +329,16 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
         onceki_hata_buyuklugu = abs(hata_isaretli)
 
         yon_bu_atis = "sag" if hata_isaretli > 0 else "sol"
-        temel_pulse_sure = min(DUZELTME_MAX_SURE, max(DUZELTME_MIN_SURE, abs(hata_isaretli) / 200.0))
+        if abs(hata_isaretli) < INCE_ESIGI:
+            # Hata zaten kucuk - normal minimum sure bile fazla agresif kalabilir,
+            # daha ince bir atis suresi kullan (1 derece hedefe daha guvenli yaklasim).
+            temel_pulse_sure = DUZELTME_MIN_SURE_INCE
+        else:
+            temel_pulse_sure = min(DUZELTME_MAX_SURE, max(DUZELTME_MIN_SURE, abs(hata_isaretli) / 200.0))
         pulse_sure = min(DUZELTME_MAX_SURE * ESKALASYON_TAVANI, temel_pulse_sure * eskalasyon_carpani)
+
+        # YENI: pulse suresini kasitli olarak kisalt - "hep az tarafta kal"
+        pulse_sure = pulse_sure * GUVENLIK_CARPANI
 
         print(f"  Duzeltme atisi #{deneme}: hata={hata_isaretli:.2f} derece, "
               f"yon={yon_bu_atis}, sure={pulse_sure:.3f}s")
@@ -614,7 +654,11 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
 
             kalan = hedef_derece - abs(toplam_donus)
 
-            if kalan <= TOLERANS:
+            # YENI: MOMENTUM_PAYI_DERECE - motoru kasitli olarak erken durdur,
+            # coast sirasindaki ataletin hedefi ASMASINI degil, hedefin biraz
+            # ALTINDA kalmasini sagla. ince_duzeltme_yap sonrasinda SADECE
+            # ayni yonde kucuk atislarla tamamlar - ters yone donmesi gerekmez.
+            if kalan <= TOLERANS + MOMENTUM_PAYI_DERECE:
                 break
 
             # HIZ ANOMALISI kontrolu: "tek teker donuyor" gibi durumlarda

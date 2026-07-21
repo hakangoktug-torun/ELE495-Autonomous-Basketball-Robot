@@ -22,7 +22,7 @@ Kullanim:
 import time
 import pigpio
 
-ESC_PIN = 17
+ESC_PIN = 17 #diğeri 23 idi
 
 MIN_DARBE_US = 1000   # motor durur / minimum hiz
 MAKS_DARBE_US = 2000  # tam hiz

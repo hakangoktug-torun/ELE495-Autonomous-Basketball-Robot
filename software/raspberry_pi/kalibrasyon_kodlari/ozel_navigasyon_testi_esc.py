@@ -58,9 +58,11 @@ from test_surus import (
     SOL_HIZ, SAG_HIZ, DUZELTME_KAZANCI, DUZELTME_KAZANCI_I, MAKS_DUZELTME,
     MAKS_INTEGRAL,
 )
+from atici_esc_kontrol_pigpio_2 import EscKontrol
 
 MIN_ACIKLIK_CM = 10.0     # onde bu kadardan fazla aciklik varsa ilerle
 ILERLEME_MESAFESI_CM = 10.0  # ne kadar ilerlenecek
+ESC_PIN = 17  # atici ESC'sinin sinyal pini
 
 
 def bolge_belirle(r, g, b, c):
@@ -144,7 +146,7 @@ def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye):
     motorlari_durdur(pwm_a, pwm_b)
 
 
-def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
+def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print, esc_atis_fn=None):
     """
     Yukaridaki hareket dizisini calistirir - CLI ve GUI arasinda PAYLASILAN
     tek mantik burasi.
@@ -156,9 +158,16 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
         bekler).
     olay_fn(mesaj)
         Her onemli adimda cagrilir (log/tarihce icin). Varsayilan: print.
+    esc_atis_fn(baglam) -> None
+        Robot HER 4 atis pozisyonuna da ulastiginda cagrilir - kullanici
+        ESC hizini ayarlayip atisi deneyip 'devam' diyene kadar bloke olur.
+        None verilirse (CLI'da varsayilan), bu dosyanin icindeki basit CLI
+        tabanli ESC kontrolu kullanilir (atici_esc_kontrol_pigpio.EscKontrol).
 
     Donus deger: True (tum adimlar basarili) / False (bir adimda basarisiz oldu)
     """
+    if esc_atis_fn is None:
+        esc_atis_fn = _cli_esc_atis
     # ---- 1) Saga 30 derece don ----
     olay_fn("1. adim: 30 derece saga donuluyor...")
     if not guvenli_donus(30, "sag", bridge, pwm_a, pwm_b):
@@ -193,6 +202,11 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
         olay_fn("6. adim basarisiz oldu, durduruluyor.")
         return False
 
+    # ---- 6.5) ATIS - 1. pozisyon (3 puanlik bolge) ----
+    olay_fn("1. atis pozisyonuna ulasildi - ESC hizi ayarlanip atis bekleniyor...")
+    esc_atis_fn({"asama": 1, "mesaj": "1. atis (3 puanlik bolge) - ESC hizini ayarla, atisi dene, sonra devam et"})
+    olay_fn("1. atis tamamlandi, devam ediliyor.")
+
     # ---- 7) Ayni aciyla TERS yone donup eski haline geri gel ----
     ters_yon1 = "sol" if yon1 == "sag" else "sag"
     olay_fn(f"7. adim: {aci1} derece {ters_yon1} yone donup eski haline geri donuluyor...")
@@ -222,6 +236,11 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
     if not guvenli_donus(aci2, yon2, bridge, pwm_a, pwm_b):
         olay_fn("10. adim basarisiz oldu, durduruluyor.")
         return False
+
+    # ---- 10.5) ATIS - 2. pozisyon (3 puanlik bolge) ----
+    olay_fn("2. atis pozisyonuna ulasildi - ESC hizi ayarlanip atis bekleniyor...")
+    esc_atis_fn({"asama": 2, "mesaj": "2. atis (3 puanlik bolge) - ESC hizini ayarla, atisi dene, sonra devam et"})
+    olay_fn("2. atis tamamlandi, devam ediliyor.")
 
     # ---- 11) Ayni aciyla TERS yone donup eski haline geri gel ----
     ters_yon2 = "sol" if yon2 == "sag" else "sag"
@@ -258,6 +277,11 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
         olay_fn("16. adim basarisiz oldu, durduruluyor.")
         return False
 
+    # ---- 16.5) ATIS - 3. pozisyon (2 puanlik bolge) ----
+    olay_fn("3. atis pozisyonuna ulasildi - ESC hizi ayarlanip atis bekleniyor...")
+    esc_atis_fn({"asama": 3, "mesaj": "3. atis (2 puanlik bolge) - ESC hizini ayarla, atisi dene, sonra devam et"})
+    olay_fn("3. atis tamamlandi, devam ediliyor.")
+
     # ---- 17) Ayni aciyla TERS yone donup eski haline geri gel ----
     ters_yon3 = "sol" if yon3 == "sag" else "sag"
     olay_fn(f"17. adim: {aci3} derece {ters_yon3} yone donup eski haline geri donuluyor...")
@@ -289,13 +313,140 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print):
         olay_fn("21. adim basarisiz oldu, durduruluyor.")
         return False
 
+    # ---- 21.5) ATIS - 4. pozisyon (2 puanlik bolge) ----
+    olay_fn("4. atis pozisyonuna ulasildi - ESC hizi ayarlanip atis bekleniyor...")
+    esc_atis_fn({"asama": 4, "mesaj": "4. atis (2 puanlik bolge) - ESC hizini ayarla, atisi dene, sonra devam et"})
+    olay_fn("4. atis tamamlandi.")
+
     olay_fn("Ozel navigasyon test rotasi tamamlandi (4 atis pozisyonu).")
     return True
+
+
+def sensor_kontrolu(bridge, sure_saniye=2.0):
+    """
+    Test baslamadan once TUM sensorleri (BNO055 heading, ultrasonik mesafe,
+    IR, renk, Vcc) birkac saniye boyunca orneklyip her birinin gecerli veri
+    verip vermedigini kontrol eder. Ozellikle ultrasonik sensorun ara sira
+    verdigi gecersiz (-1) okumalari yakalamak icin TEK bir aninlik okumaya
+    degil, birden fazla ornege bakilir.
+
+    Donus deger: tespit edilen sorunlarin metin listesi (bos liste = sorun yok)
+    """
+    print("\n=== SENSOR ON KONTROLU ===")
+    print(f"{sure_saniye}s boyunca tum sensorler ornekleniyor, lutfen bekle...")
+
+    ornekler = {"heading": [], "distance": [], "ir1": [], "ir2": [], "renk": [], "vcc": []}
+    baslangic = time.time()
+    while time.time() - baslangic < sure_saniye:
+        veri = bridge.get_all()
+        ornekler["heading"].append(veri["heading"])
+        ornekler["distance"].append(veri["distance"])
+        ornekler["ir1"].append(veri["ir1"])
+        ornekler["ir2"].append(veri["ir2"])
+        ornekler["renk"].append((veri["r"], veri["g"], veri["b"], veri["c"]))
+        ornekler["vcc"].append(veri["vcc_mv"])
+        time.sleep(0.05)
+
+    sorunlar = []
+
+    # ---- BNO055 (heading) ----
+    heading_gecerli = [h for h in ornekler["heading"] if h is not None]
+    if not heading_gecerli:
+        print("  [HATA] BNO055 (heading): hic veri alinamadi.")
+        sorunlar.append("BNO055 (heading): veri alinamadi.")
+    else:
+        print(f"  [OK] BNO055 (heading): {len(heading_gecerli)} gecerli okuma, "
+              f"son deger={heading_gecerli[-1]:.1f} derece")
+
+    # ---- Ultrasonik (mesafe) ----
+    toplam_mesafe_ornegi = len(ornekler["distance"])
+    mesafe_gecerli = [d for d in ornekler["distance"] if d is not None and d > 0]
+    gecersiz_sayisi = toplam_mesafe_ornegi - len(mesafe_gecerli)
+
+    if not mesafe_gecerli:
+        print("  [HATA] Ultrasonik (mesafe): tum okumalar gecersiz (-1/None).")
+        sorunlar.append("Ultrasonik (mesafe): tum okumalar gecersiz.")
+    else:
+        gecersiz_oran = 100 * gecersiz_sayisi / toplam_mesafe_ornegi if toplam_mesafe_ornegi else 0
+        if gecersiz_sayisi > 0:
+            print(f"  [UYARI] Ultrasonik (mesafe): {gecersiz_sayisi}/{toplam_mesafe_ornegi} "
+                  f"gecersiz okuma (%{gecersiz_oran:.0f}), son gecerli deger={mesafe_gecerli[-1]:.1f}cm")
+            if gecersiz_oran > 20:
+                sorunlar.append(f"Ultrasonik (mesafe): gecersiz okuma orani yuksek (%{gecersiz_oran:.0f}).")
+        else:
+            print(f"  [OK] Ultrasonik (mesafe): tum okumalar gecerli, son deger={mesafe_gecerli[-1]:.1f}cm")
+
+    # ---- IR sensorleri ----
+    ir1_gecerli = [v for v in ornekler["ir1"] if v is not None]
+    ir2_gecerli = [v for v in ornekler["ir2"] if v is not None]
+    if not ir1_gecerli or not ir2_gecerli:
+        print("  [HATA] IR sensorleri: veri alinamadi.")
+        sorunlar.append("IR sensorleri: veri alinamadi.")
+    else:
+        print(f"  [OK] IR sensorleri: IR1={ir1_gecerli[-1]:.0f} IR2={ir2_gecerli[-1]:.0f}")
+
+    # ---- Renk sensoru ----
+    renk_gecerli = [r for r in ornekler["renk"] if r[0] is not None]
+    if not renk_gecerli:
+        print("  [HATA] Renk sensoru (TCS34725): veri alinamadi.")
+        sorunlar.append("Renk sensoru: veri alinamadi.")
+    else:
+        son = renk_gecerli[-1]
+        print(f"  [OK] Renk sensoru: R={son[0]:.0f} G={son[1]:.0f} B={son[2]:.0f} C={son[3]:.0f}")
+
+    # ---- Vcc (guc) ----
+    vcc_gecerli = [v for v in ornekler["vcc"] if v is not None]
+    if not vcc_gecerli:
+        print("  [HATA] Vcc (guc) okumasi: veri alinamadi.")
+        sorunlar.append("Vcc: veri alinamadi.")
+    else:
+        son_vcc = vcc_gecerli[-1]
+        if son_vcc < 4300:
+            print(f"  [UYARI] Vcc dusuk: {son_vcc:.0f}mV (esik: 4300mV) - "
+                  f"guc kaynagi yetersiz kalabilir.")
+            sorunlar.append(f"Vcc dusuk ({son_vcc:.0f}mV).")
+        else:
+            print(f"  [OK] Vcc: {son_vcc:.0f}mV")
+
+    print()
+    if sorunlar:
+        print("Tespit edilen olasi sorunlar:")
+        for s in sorunlar:
+            print(f"  - {s}")
+    else:
+        print("Hicbir sorun tespit edilmedi.")
+    print()
+
+    return sorunlar
 
 
 # ---------------------------------------------------------------------------
 # CLI modu
 # ---------------------------------------------------------------------------
+
+def _cli_esc_atis(baglam):
+    """
+    CLI modunda varsayilan ESC kontrolu - EscKontrol'u dogrudan kullanir,
+    kullanicidan interaktif olarak hiz yuzdesi ister, 'devam' yazana kadar
+    bekler.
+    """
+    print(f"\n=== {baglam['mesaj']} ===")
+    esc = EscKontrol(pin=ESC_PIN)
+    esc.baslat()
+    try:
+        while True:
+            girdi = input("ESC hizi (0-100), atisi bitirip devam etmek icin 'devam' yaz: ").strip().lower()
+            if girdi == "devam":
+                break
+            try:
+                yuzde = float(girdi)
+                uygulanan = esc.hiz_ayarla(yuzde)
+                print(f"Hiz %{uygulanan:.2f} olarak ayarlandi.")
+            except ValueError:
+                print("Gecerli bir sayi ya da 'devam' yaz.")
+    finally:
+        esc.kapat()
+
 
 def cli_aci_getir(baglam):
     print(f"\n=== {baglam['mesaj']} ===")
@@ -335,6 +486,19 @@ def main():
 
     bridge.request_fast_mode()
     time.sleep(0.1)
+
+    # ---- Baslamadan once tum sensorleri kontrol et ----
+    sensor_kontrolu(bridge)
+    while True:
+        cevap = input("Her sensor duzgun calisiyor, prosedure devam edilsin mi? "
+                       "(evet/hayir): ").strip().lower()
+        if cevap in ("evet", "e"):
+            break
+        if cevap in ("hayir", "h"):
+            print("Kullanici tarafindan durduruldu.")
+            bridge.stop()
+            return
+        print("Gecerli bir cevap degil - 'evet' ya da 'hayir' yaz.")
 
     pwm_a, pwm_b = motorlari_ayarla()
 
