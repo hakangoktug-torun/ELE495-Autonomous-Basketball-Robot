@@ -119,16 +119,16 @@ def _durdurma_kontrol_et(dur_bayragi):
 POZISYON_1 = dict(ilk_yon="sol", ilk_aci=89.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="1. atis")
-POZISYON_2 = dict(ilk_yon="sol", ilk_aci=93.0, esc_hiz=12.4,
+POZISYON_2 = dict(ilk_yon="sol", ilk_aci=98.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="2. atis")
-POZISYON_3 = dict(ilk_yon="sol", ilk_aci=106.0, esc_hiz=12.4,
+POZISYON_3 = dict(ilk_yon="sol", ilk_aci=110.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="3. atis")
-POZISYON_4 = dict(ilk_yon="sol", ilk_aci=13.0, esc_hiz=11.0,
+POZISYON_4 = dict(ilk_yon="sol", ilk_aci=19.0, esc_hiz=11.0,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="4. atis")
-POZISYON_5 = dict(ilk_yon="sag", ilk_aci=105.0, esc_hiz=11.0,
+POZISYON_5 = dict(ilk_yon="sag", ilk_aci=106.0, esc_hiz=11.0,
                    sweep_yon="sol", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=2, etiket="5. atis")
 
@@ -161,7 +161,8 @@ POZISYONLAR = [POZISYON_1, POZISYON_2, POZISYON_3, POZISYON_4, POZISYON_5]
 GECISLER = [
     dict(ekstra_donus=None, hareket="mesafe"),                                          # 1 -> 2
     dict(ekstra_donus=None, hareket="mesafe"),                                          # 2 -> 3
-    dict(ekstra_donus=("sol", 90.0), hareket="engel", esik_cm=45.0, renk_dogrula=True), # 3 -> 4 (kirmizi->yesil, 45->30cm - daha fazla ilerlesin)
+    dict(ekstra_donus=("sol", 90.0), hareket="sure", sure_s=0.1, renk_dogrula=True,
+         hiz_carpani=1.3 / 1.5),                                                       # 3 -> 4 (kirmizi->yesil, sure ile - 0.7s, 1.3x hiz)
     dict(ekstra_donus=("sol", 90.0), hareket="mesafe"),                                # 4 -> 5
 ]
 
@@ -414,12 +415,15 @@ def baseline_don(bridge, pwm_a, pwm_b, p, sweep_toplam, olay_fn, dur_bayragi=Non
 
 
 def _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, maks_ek_adim=5,
-                                adim_suresi=0.2, dur_bayragi=None):
+                                adim_suresi=0.2, dur_bayragi=None, hiz_carpani=1.0):
     """
     Zamanli gecis hareketinden sonra renk sensoruyle gercekten YESIL
     bolgeye girilip girilmedigini dogrular. Hala KIRMIZI/taninmayan
     okunuyorsa, kisa (adim_suresi) ek ileri hareketlerle en fazla
     maks_ek_adim kez dener.
+
+    hiz_carpani: ek ileri hareketler de ANA gecis hareketiyle AYNI hiz
+    carpaniyla yapilir (tutarlilik icin).
 
     NOT: maks_ek_adim 3->5, adim_suresi 0.15->0.2 (robot yesile hic
     giremeyip kirmizida kalmaya devam ettigi icin ek mesafe payi artirildi).
@@ -443,7 +447,8 @@ def _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, maks_ek_adim=5,
 
         olay_fn(f"  Renk dogrulama: hala yesil degil, {adim_suresi}s ek ileri "
                 f"hareket deneniyor ({deneme + 1}/{maks_ek_adim})...")
-        ileri_git_sabit_sure(bridge, pwm_a, pwm_b, adim_suresi, dur_bayragi=dur_bayragi)
+        ileri_git_sabit_sure(bridge, pwm_a, pwm_b, adim_suresi, dur_bayragi=dur_bayragi,
+                              hiz_carpani=hiz_carpani)
 
 
 def _donus_uygula(aci, yon, bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=None):
@@ -505,13 +510,16 @@ def gecis_uygula(bridge, pwm_a, pwm_b, gecis, olay_fn, dur_bayragi=None):
         else:
             olay_fn("  Gecis: onde yeterli aciklik yok, ilerleme atlaniyor.")
     elif gecis["hareket"] == "sure":
-        olay_fn(f"  Gecis: {gecis['sure_s']}s duz gidiliyor...")
-        ileri_git_sabit_sure(bridge, pwm_a, pwm_b, gecis["sure_s"], dur_bayragi=dur_bayragi)
+        hiz_carpani = gecis.get("hiz_carpani", 1.0)
+        olay_fn(f"  Gecis: {gecis['sure_s']}s duz gidiliyor (hiz carpani {hiz_carpani:.3f})...")
+        ileri_git_sabit_sure(bridge, pwm_a, pwm_b, gecis["sure_s"], dur_bayragi=dur_bayragi,
+                              hiz_carpani=hiz_carpani)
 
         _durdurma_kontrol_et(dur_bayragi)
 
         if gecis.get("renk_dogrula"):
-            _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=dur_bayragi)
+            _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=dur_bayragi,
+                                       hiz_carpani=hiz_carpani)
     elif gecis["hareket"] == "engel":
         # Sure yerine ULTRASONIK MESAFE ile ilerleme: onde bir engel
         # (orn. sahanin dis duvari/kenari) esik_cm mesafesine gelene kadar
@@ -539,18 +547,25 @@ def gecis_uygula(bridge, pwm_a, pwm_b, gecis, olay_fn, dur_bayragi=None):
         esik_telafi_cm = gecis.get("esik_telafi_cm", 25.0)
         efektif_esik = esik_cm + esik_telafi_cm
 
+        # HIZ CARPANI: bu YOL ozelinde (kirmizidan yesile gecis) duz gitme
+        # hizi dusurulebilir - global SOL_HIZ/SAG_HIZ (1.5x kalibrasyonu)
+        # SABIT kalir, sadece bu cagriya ozel bir carpan uygulanir.
+        hiz_carpani = gecis.get("hiz_carpani", 1.0)
+
         olay_fn(f"  Gecis: hedef durma mesafesi {esik_cm}cm (telafi payiyla "
-                f"sensor esigi {efektif_esik}cm olarak ayarlandi) - onde "
-                f"engel bulunana kadar ilerleniyor...")
+                f"sensor esigi {efektif_esik}cm olarak ayarlandi, hiz carpani "
+                f"{hiz_carpani:.3f}) - onde engel bulunana kadar ilerleniyor...")
         bulundu = ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=efektif_esik,
-                                           dur_bayragi=dur_bayragi)
+                                           dur_bayragi=dur_bayragi,
+                                           hiz_carpani=hiz_carpani)
         _durdurma_kontrol_et(dur_bayragi)
         if not bulundu:
             olay_fn(f"  UYARI: Gecis - {efektif_esik}cm'de engel bulunamadi "
                     f"(zaman asimi), guvenlik amacli durulmustu. Devam ediliyor.")
 
         if gecis.get("renk_dogrula"):
-            _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=dur_bayragi)
+            _renk_dogrulayarak_ilerle(bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=dur_bayragi,
+                                       hiz_carpani=hiz_carpani)
 
 
 def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PIN,

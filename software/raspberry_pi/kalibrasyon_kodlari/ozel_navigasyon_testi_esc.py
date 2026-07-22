@@ -111,11 +111,16 @@ def bolge_bildir(bridge, olay_fn):
     return aciklama, puan
 
 
-def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None):
+def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None,
+                          hiz_carpani=1.0):
     """
     Belirtilen sure boyunca duz ileri gider (mesafe sensoru KULLANILMAZ,
     sadece zaman). BNO055 heading feedback ile saga/sola kaymayi anlik
     olarak duzeltir.
+
+    hiz_carpani: (YENI) taban hizi (SOL_HIZ/SAG_HIZ) bu katsayiyla carpar -
+    SADECE bu cagriya ozel, global SOL_HIZ/SAG_HIZ SABIT kalir. 1.0 =
+    degisiklik yok (varsayilan).
 
     dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
     fonksiyondan cikilir.
@@ -127,7 +132,7 @@ def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None):
     ileri_yon_ayarla()
 
     hedef_heading = bridge.get_heading()
-    temel_sol, temel_sag = SOL_HIZ, SAG_HIZ
+    temel_sol, temel_sag = SOL_HIZ * hiz_carpani, SAG_HIZ * hiz_carpani
     pwm_a.ChangeDutyCycle(temel_sol)
     pwm_b.ChangeDutyCycle(temel_sag)
 

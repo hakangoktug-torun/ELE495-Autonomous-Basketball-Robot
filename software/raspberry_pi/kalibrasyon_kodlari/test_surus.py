@@ -189,13 +189,20 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None, dur_bayragi=Non
 
 
 def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
-                              maks_sure=MAKS_ENGEL_BEKLEME, dur_bayragi=None):
+                              maks_sure=MAKS_ENGEL_BEKLEME, dur_bayragi=None,
+                              hiz_carpani=1.0):
     """
     Bir cisim esik_cm mesafesine kadar yaklasana kadar duz gider.
     Esige iki kademeli yavaslama uygulanir (once YAVASLAMA_MESAFE_FARKI,
     sonra COK_YAVAS_MESAFE_FARKI kala) - boylece durma ani daha hassas olur,
     overshoot (esigi fazla gecme) azalir. Ayrica BNO055 heading feedback ile
     saga/sola kaymayi (drift) anlik olarak duzeltir.
+
+    hiz_carpani: (YENI) taban hizi (SOL_HIZ/SAG_HIZ) bu katsayiyla carpar -
+    SADECE bu cagriya ozel, global SOL_HIZ/SAG_HIZ SABIT kalir (diger
+    kullanimlari etkilemez). Ornegin hiz_carpani=1.3/1.5 ile, global
+    hizlar 1.5x kalibrasyonuna gore ayarlanmisken bu YOL ozelinde 1.3x'e
+    dusurulmus olur. 1.0 = degisiklik yok (varsayilan).
 
     dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
     False donulur (engel bulunamamis gibi - cagiran kod zaten bunu guvenli
@@ -208,7 +215,7 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     ayni bayat degeri hizli polling yuzunden birden fazla kez okumus olmak,
     "dogrulanmis ardisik okuma" sayilmiyor.
     """
-    print(f"Engel araniyor (esik: {esik_cm} cm)...")
+    print(f"Engel araniyor (esik: {esik_cm} cm, hiz carpani: {hiz_carpani:.3f})...")
 
     if _durdurma_istendi_mi(dur_bayragi):
         print("DURDURMA sinyali - engel aramaya baslamadan iptal edildi.")
@@ -218,7 +225,7 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
 
     hedef_heading = bridge.get_heading()  # duz gitmeyi korumak icin referans yon
 
-    temel_sol, temel_sag = SOL_HIZ, SAG_HIZ
+    temel_sol, temel_sag = SOL_HIZ * hiz_carpani, SAG_HIZ * hiz_carpani
     pwm_a.ChangeDutyCycle(temel_sol)
     pwm_b.ChangeDutyCycle(temel_sag)
 
@@ -324,7 +331,7 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
                     kurtarma_sol, kurtarma_sag = HIZ_YAVAS_ENGEL, HIZ_YAVAS_ENGEL + (SAG_HIZ - SOL_HIZ)
                     kurtarma_suresi_efektif = KURTARMA_SURESI * 0.5
                 else:
-                    kurtarma_sol, kurtarma_sag = SOL_HIZ, SAG_HIZ
+                    kurtarma_sol, kurtarma_sag = SOL_HIZ * hiz_carpani, SAG_HIZ * hiz_carpani
                     kurtarma_suresi_efektif = KURTARMA_SURESI
 
                 pwm_a.ChangeDutyCycle(kurtarma_sol)
