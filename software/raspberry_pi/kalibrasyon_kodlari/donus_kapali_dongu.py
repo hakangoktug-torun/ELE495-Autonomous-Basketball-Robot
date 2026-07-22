@@ -2,6 +2,12 @@
 Kapali dongu (closed-loop) donus kontrolu - BNO055 feedback ile
 Sabit sure yerine, hedef aciya ulasana kadar doner ve otomatik durur.
 
+GUNCELLEME (acil durdur destegi): donus_yap() ve ince_duzeltme_yap() artik
+opsiyonel bir dur_bayragi (threading.Event) parametresi aliyor. Bu bayrak
+set edildiginde (Acil Durdur butonu ya da Ctrl+C), donus dongusu EN GEC bir
+sonraki kontrol turunda (birkac-birkac yuz ms icinde) motoru durdurup
+fonksiyondan hemen cikiyor.
+
 Kullanim ornegi (dosyanin sonundaki main() icinde):
     donus_yap(90, yon="sol")   # 90 derece sola don
 
@@ -47,6 +53,11 @@ DUZELTME_MAX_SURE = 0.10    # saniye - en uzun duzeltme atisi (0.107'den 0.10'a 
 DUZELTME_SETTLE = 0.4       # her atistan sonra olcum oncesi bekleme (magnetometer/motor sakinlessin)
 MAKS_DUZELTME_DENEME = 10   # sonsuz salinim olmasin diye deneme siniri (8'den 10'a - FINE_TOLERANS
                               # sikilastigi icin (1.0) bazen 1-2 atis daha gerekebilir)
+
+
+def _durdurma_istendi_mi(dur_bayragi):
+    """Ortak yardimci - dur_bayragi verilmis ve set edilmisse True doner."""
+    return dur_bayragi is not None and dur_bayragi.is_set()
 
 
 def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_mag=3,
@@ -231,11 +242,15 @@ def donus_yonu_ayarla(yon):
         raise ValueError("yon 'sol' ya da 'sag' olmali")
 
 
-def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki_heading):
+def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki_heading,
+                       dur_bayragi=None):
     """
     Ana donus bittikten sonra, kalan hata FINE_TOLERANS'in ustundeyse
     kisa duzeltme atislari (pulse) yaparak hatayi azaltmaya calisir.
     Her atistan sonra durup olcum alir, gerekirse ters yonde tekrar dener.
+
+    GUNCELLEME (acil durdur): dur_bayragi set edilirse, dongu bir sonraki
+    denemeye gecmeden once motoru durdurup mevcut degerlerle hemen doner.
 
     ADAPTIF ESKALASYON: Eger art arda atislar hatada anlamli bir ilerleme
     saglamiyorsa (robot belirli bir direncli/stall konumunda takili
@@ -277,6 +292,11 @@ def ince_duzeltme_yap(bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki
     # duzeltebilmesi icin daha fazla sansi ayni dongu icinde tanıyoruz.
 
     for deneme in range(1, MAKS_DUZELTME_DENEME + 1):
+        if _durdurma_istendi_mi(dur_bayragi):
+            motorlari_durdur(pwm_a, pwm_b)
+            print("DURDURMA sinyali alindi - ince duzeltme aninda iptal ediliyor.")
+            return toplam_donus, onceki_heading
+
         hata_isaretli = hedef_isaretli - toplam_donus
 
         if abs(hata_isaretli) <= FINE_TOLERANS:
@@ -423,7 +443,8 @@ def isinma_yap(bridge, pwm_a, pwm_b, hiz=30):
           f"accel={cal['accel']} mag={cal['mag']}\n")
 
 
-def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, otonom=False):
+def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, otonom=False,
+              dur_bayragi=None):
     """
     hedef_derece: kac derece donulecek (pozitif sayi, yon parametresi ile yon belirlenir)
     yon: 'sol' ya da 'sag'
@@ -434,6 +455,9 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         tekrar kurup yikmadan, ayni nesneleri donus + duz gitme arasinda
         kesintisiz kullanabilir (RPi.GPIO'nun ayni pinde ust uste PWM
         olusturma/yikma sirasinda bazen motoru tepkisiz birakmasi sorununu onler).
+    dur_bayragi: (YENI) opsiyonel threading.Event. Set edilirse, donus dongusu
+        EN GEC bir sonraki kontrol turunda (yaklasik 20ms) motoru durdurup
+        fonksiyondan hemen cikar - Acil Durdur / Ctrl+C icin kullanilir.
 
     Donus deger: gercekte donulen toplam derece (float)
     """
@@ -460,7 +484,15 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         pwm_a, pwm_b = motorlari_ayarla()
 
     try:
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali alindi - donus baslamadan iptal edildi.")
+            return 0.0
+
         kalibrasyon_bekle(bridge, otonom=otonom)
+
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali alindi - donus baslamadan iptal edildi.")
+            return 0.0
 
         # HIZLI MOD: renk sensoru okumasini gecici kapatip Arduino'nun dongu
         # hizini artiriyoruz - bu, heading verisinin cok daha guncel gelmesini
@@ -490,6 +522,10 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             # engellemeyecek kadar kisa bir pay kapliyor.
             YUMUSAK_BASLANGIC_ADIMLARI = 5
             for adim in range(1, YUMUSAK_BASLANGIC_ADIMLARI + 1):
+                if _durdurma_istendi_mi(dur_bayragi):
+                    motorlari_durdur(pwm_a, pwm_b)
+                    print("DURDURMA sinyali alindi - soft-start sirasinda iptal edildi.")
+                    return toplam_donus
                 gecici_hiz = HIZ_NORMAL * adim / YUMUSAK_BASLANGIC_ADIMLARI
                 pwm_a.ChangeDutyCycle(gecici_hiz)
                 pwm_b.ChangeDutyCycle(gecici_hiz)
@@ -558,6 +594,10 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         mevcut_duty = HIZ_NORMAL
 
         while True:
+            if _durdurma_istendi_mi(dur_bayragi):
+                print("DURDURMA sinyali alindi - ana donus dongusu aninda iptal ediliyor.")
+                break
+
             if time.time() - baslangic_zamani > ZAMAN_ASIMI:
                 print("UYARI: Zaman asimi, donus zorla durduruldu (sensor/motor sorunu olabilir).")
                 break
@@ -682,6 +722,11 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
 
         motorlari_durdur(pwm_a, pwm_b)
 
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali - motor durduruldu, donus fonksiyonundan hemen cikiliyor "
+                  "(settle/ince duzeltme adimlari atlaniyor).")
+            return toplam_donus
+
         # Motor calisirken olusan manyetik girisimin sonmesi icin bekle.
         # ONEMLI: Bu sirada motor KAPALI, yani robot fiziksel olarak hareket etmiyor.
         # Bu yuzden bu pencerede gorulen buyuk bir ani sicrama gercek bir donus OLAMAZ -
@@ -700,6 +745,9 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
 
         settle_baslangic = time.time()
         while time.time() - settle_baslangic < SETTLE_SURESI:
+            if _durdurma_istendi_mi(dur_bayragi):
+                print("DURDURMA sinyali - settle bekleme dongusu iptal ediliyor.")
+                break
             simdiki_heading = bridge.get_heading()
             delta, onceki_heading, bekleyen_deger_settle = guvenli_heading_guncelle(
                 onceki_heading, simdiki_heading, bekleyen_deger_settle, MAKS_GECERLI_SETTLE_ADIMI
@@ -708,6 +756,9 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
                 toplam_donus += delta
 
             time.sleep(SETTLE_ORNEK_ARALIGI)
+
+        if _durdurma_istendi_mi(dur_bayragi):
+            return toplam_donus
 
         # Kalibrasyon durumunu kontrol et - dusukse manyetik girisim teorisini dogrular
         bridge.request_calibration_status()
@@ -719,7 +770,8 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         # ---- Ince duzeltme: hata FINE_TOLERANS'in altina inene kadar kucuk atislarla duzelt ----
         hedef_isaretli = -hedef_derece if yon == "sol" else hedef_derece
         toplam_donus, onceki_heading = ince_duzeltme_yap(
-            bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki_heading
+            bridge, pwm_a, pwm_b, hedef_isaretli, toplam_donus, onceki_heading,
+            dur_bayragi=dur_bayragi,
         )
 
         print(f"Hedef: {hedef_derece} derece, gercekte donulen: {toplam_donus:.1f} derece "

@@ -13,6 +13,11 @@ Senaryo:
 
 Toplam: 4 kenar + 4 donus = tam bir kare rota, 360 derece toplam donus.
 
+GUNCELLEME (acil durdur destegi): guvenli_donus(), ileri_git_sabit_mesafe()
+ve ileri_git_engel_bulunca() artik opsiyonel bir dur_bayragi (threading.Event)
+parametresi aliyor. Set edilirse motoru en kisa surede durdurup fonksiyondan
+cikarlar - Acil Durdur / Ctrl+C icin kullanilir.
+
 Bu dosyayi ayni klasore koy: software/raspberry_pi/kalibrasyon_kodlari/
 (donus_kapali_dongu.py ve robot_bridge.py ile ayni yerde olmali)
 
@@ -63,6 +68,11 @@ ENGEL_ESIGI_CM = 30.0     # bu mesafenin altina inince dur
 VCC_TAKIP = {"en_dusuk": None, "dusuk_gerilim_esigi": 4300, "uyari_verildi": False}
 
 
+def _durdurma_istendi_mi(dur_bayragi):
+    """Ortak yardimci - dur_bayragi verilmis ve set edilmisse True doner."""
+    return dur_bayragi is not None and dur_bayragi.is_set()
+
+
 def vcc_kontrol_et(vcc_mv):
     """Vcc degerini VCC_TAKIP'e kaydeder, dusuk gerilimde bir kez uyarir."""
     if vcc_mv is None:
@@ -98,21 +108,33 @@ def ileri_yon_ayarla():
     GPIO.output(IN3, GPIO.LOW);  GPIO.output(IN4, GPIO.HIGH)
 
 
-def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
+def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None, dur_bayragi=None):
     """
     Sabit mesafe ileri gider. bridge verilirse, BNO055 heading feedback ile
     sapmayi (saga/sola kayma) anlik olarak duzeltir - bridge verilmezse
     eskisi gibi acik dongu (duzeltmesiz) calisir.
+
+    dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
+    fonksiyondan cikilir.
     """
     sure = mesafe_cm / CM_PER_SANIYE
     print(f"Ileri gidiliyor: {mesafe_cm} cm (~{sure:.2f}s)")
+
+    if _durdurma_istendi_mi(dur_bayragi):
+        print("DURDURMA sinyali - ileri gitme baslamadan iptal edildi.")
+        return
 
     ileri_yon_ayarla()
 
     if bridge is None:
         pwm_a.ChangeDutyCycle(SOL_HIZ)
         pwm_b.ChangeDutyCycle(SAG_HIZ)
-        time.sleep(sure)
+        baslangic = time.time()
+        while time.time() - baslangic < sure:
+            if _durdurma_istendi_mi(dur_bayragi):
+                print("DURDURMA sinyali - ileri gitme (acik dongu) iptal ediliyor.")
+                break
+            time.sleep(0.03)
         motorlari_durdur(pwm_a, pwm_b)
         return
 
@@ -125,6 +147,10 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
     son_zaman = baslangic
 
     while time.time() - baslangic < sure:
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali - ileri gitme (kapali dongu) iptal ediliyor.")
+            break
+
         simdiki_heading = bridge.get_heading()
         simdi = time.time()
         dt = simdi - son_zaman
@@ -163,13 +189,17 @@ def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None):
 
 
 def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
-                              maks_sure=MAKS_ENGEL_BEKLEME):
+                              maks_sure=MAKS_ENGEL_BEKLEME, dur_bayragi=None):
     """
     Bir cisim esik_cm mesafesine kadar yaklasana kadar duz gider.
     Esige iki kademeli yavaslama uygulanir (once YAVASLAMA_MESAFE_FARKI,
     sonra COK_YAVAS_MESAFE_FARKI kala) - boylece durma ani daha hassas olur,
     overshoot (esigi fazla gecme) azalir. Ayrica BNO055 heading feedback ile
     saga/sola kaymayi (drift) anlik olarak duzeltir.
+
+    dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
+    False donulur (engel bulunamamis gibi - cagiran kod zaten bunu guvenli
+    bir durus olarak isliyor).
 
     ONEMLI: Ultrasonik sensor (HC-SR04) acili yuzeylerden/duvar koselerinden
     yansiyinca (multipath) tek seferlik, gercek olmayan yakin mesafe okumalari
@@ -179,6 +209,10 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     "dogrulanmis ardisik okuma" sayilmiyor.
     """
     print(f"Engel araniyor (esik: {esik_cm} cm)...")
+
+    if _durdurma_istendi_mi(dur_bayragi):
+        print("DURDURMA sinyali - engel aramaya baslamadan iptal edildi.")
+        return False
 
     ileri_yon_ayarla()
 
@@ -209,6 +243,11 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
 
     baslangic = time.time()
     while time.time() - baslangic < maks_sure:
+        if _durdurma_istendi_mi(dur_bayragi):
+            motorlari_durdur(pwm_a, pwm_b)
+            print("DURDURMA sinyali - engel arama dongusu iptal ediliyor.")
+            return False
+
         if bridge.is_stale(max_age_sec=0.5):
             time.sleep(0.03)
             continue
@@ -308,7 +347,7 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     return False
 
 
-def guvenli_donus(hedef_derece, yon, bridge, pwm_a, pwm_b, maks_deneme=2):
+def guvenli_donus(hedef_derece, yon, bridge, pwm_a, pwm_b, maks_deneme=2, dur_bayragi=None):
     """
     donus_yap()'i cagirir, ama sonucu KONTROL EDER. Eger donus BNO055
     kilitlenmesi ya da baska bir sorun yuzunden basarisiz olduysa (donen
@@ -316,15 +355,27 @@ def guvenli_donus(hedef_derece, yon, bridge, pwm_a, pwm_b, maks_deneme=2):
     gecmez: uyari basar ve tekrar dener. Tum denemeler basarisiz olursa,
     False donup testin guvenli sekilde durmasini saglar.
 
+    dur_bayragi: (YENI) set edilirse HICBIR tekrar denemesi yapilmadan
+    hemen False doner (donus_yap zaten mevcut donusu de aninda iptal eder).
+
     Donus deger: True (basarili) / False (tum denemeler basarisiz)
     """
     for deneme in range(1, maks_deneme + 1):
-        sonuc = donus_yap(hedef_derece, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b, otonom=True)
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali - donus denemesi yapilmadan iptal edildi.")
+            return False
+
+        sonuc = donus_yap(hedef_derece, yon=yon, bridge=bridge, pwm_a=pwm_a, pwm_b=pwm_b,
+                           otonom=True, dur_bayragi=dur_bayragi)
 
         # Basari kontrolu: donen aci, hedefin en az yarisi kadar olmali.
         # Kilitlenme durumunda donus_yap 0.0 (ya da cok kucuk bir deger) doner.
         if abs(sonuc) >= hedef_derece * 0.5:
             return True
+
+        if _durdurma_istendi_mi(dur_bayragi):
+            # Basarisizlik durdurma sinyalinden kaynaklandi - tekrar denemeye gerek yok
+            return False
 
         print(f"\nUYARI: Donus basarisiz gorunuyor (istenen {hedef_derece}, "
               f"gerceklesen {sonuc:.1f}). Deneme {deneme}/{maks_deneme}.")

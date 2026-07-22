@@ -4,6 +4,10 @@ test_surus.py'nin kare rotasindan FARKLI, ozel bir hareket dizisi dener.
 Robot 4 farkli pozisyonda durur (ilk 2'si 3 puanlik bolgede, son 2'si 2
 puanlik bolgede) ve her pozisyonda senden bir atis acisi/yonu ister.
 
+GUNCELLEME (acil durdur destegi): ileri_git_sabit_sure() artik opsiyonel
+bir dur_bayragi (threading.Event) parametresi aliyor - set edilirse hareket
+en kisa surede durdurulup fonksiyondan cikilir.
+
 Bu dosya IKI SEKILDE kullanilabilir (firlaticisiz_atis_simulasyon_test.py ile
 ayni mantik):
   1) Komut satirindan direkt calistirilabilir (input() ile sorar):
@@ -65,6 +69,11 @@ ILERLEME_MESAFESI_CM = 10.0  # ne kadar ilerlenecek
 ESC_PIN = 17  # atici ESC'sinin sinyal pini
 
 
+def _durdurma_istendi_mi(dur_bayragi):
+    """Ortak yardimci - dur_bayragi verilmis ve set edilmisse True doner."""
+    return dur_bayragi is not None and dur_bayragi.is_set()
+
+
 def bolge_belirle(r, g, b, c):
     """
     Ham RGB degerlerine bakarak kabaca hangi renk bolgesinde oldugunu tahmin
@@ -102,12 +111,19 @@ def bolge_bildir(bridge, olay_fn):
     return aciklama, puan
 
 
-def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye):
+def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None):
     """
     Belirtilen sure boyunca duz ileri gider (mesafe sensoru KULLANILMAZ,
     sadece zaman). BNO055 heading feedback ile saga/sola kaymayi anlik
     olarak duzeltir.
+
+    dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
+    fonksiyondan cikilir.
     """
+    if _durdurma_istendi_mi(dur_bayragi):
+        print("DURDURMA sinyali - sabit sureli ileri gitme baslamadan iptal edildi.")
+        return
+
     ileri_yon_ayarla()
 
     hedef_heading = bridge.get_heading()
@@ -120,6 +136,10 @@ def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye):
     baslangic = time.time()
 
     while time.time() - baslangic < sure_saniye:
+        if _durdurma_istendi_mi(dur_bayragi):
+            print("DURDURMA sinyali - sabit sureli ileri gitme iptal ediliyor.")
+            break
+
         simdiki_heading = bridge.get_heading()
         simdi = time.time()
         dt = simdi - son_zaman
@@ -150,6 +170,11 @@ def calistir_ozel_rota(bridge, pwm_a, pwm_b, aci_getir_fn, olay_fn=print, esc_at
     """
     Yukaridaki hareket dizisini calistirir - CLI ve GUI arasinda PAYLASILAN
     tek mantik burasi.
+
+    NOT: Bu fonksiyon artik GUI (app.py) tarafindan kullanilmiyor - onun
+    yerine ozel_navigasyon_testi_esc_sweep_2.py'deki calistir_ozel_rota_sweep()
+    kullaniliyor. Bu fonksiyon sadece CLI/legacy kullanim icin korunuyor,
+    dur_bayragi entegrasyonu YAPILMADI.
 
     aci_getir_fn(baglam) -> (yon, aci)
         baglam: {"asama": 1-4, "mesaj": "..."} - hangi asamada oldugumuzu
