@@ -310,13 +310,31 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
                     motorlari_durdur(pwm_a, pwm_b)
                     return False
 
-                pwm_a.ChangeDutyCycle(SOL_HIZ)
-                pwm_b.ChangeDutyCycle(SAG_HIZ)
-                time.sleep(KURTARMA_SURESI)
+                # GUNCELLEME: Son yaklasim fazinda (cok_yavas_moda_gecildi)
+                # TAM HIZLI kurtarma atisi (SOL_HIZ/SAG_HIZ) tehlikeli -
+                # hedefe cok yakinken ani bir tam-hiz sicramasi, mesafeyi
+                # gercekte 'takilma' olmadigi halde ciddi olcude asirabilir
+                # (overshoot). Bu asamada zaten dogal olarak cok yavas/az
+                # hareket beklenir - bu yuzden daha hafif bir kurtarma
+                # (HIZ_YAVAS_ENGEL, daha kisa sure) kullaniyoruz. Sadece
+                # hala uzaktayken (henuz cok_yavas_moda_gecildi degilken)
+                # gercekten guclu bir "unstick" gerekebilir - orada eskisi
+                # gibi tam hiz kullanilmaya devam ediyor.
+                if cok_yavas_moda_gecildi:
+                    kurtarma_sol, kurtarma_sag = HIZ_YAVAS_ENGEL, HIZ_YAVAS_ENGEL + (SAG_HIZ - SOL_HIZ)
+                    kurtarma_suresi_efektif = KURTARMA_SURESI * 0.5
+                else:
+                    kurtarma_sol, kurtarma_sag = SOL_HIZ, SAG_HIZ
+                    kurtarma_suresi_efektif = KURTARMA_SURESI
+
+                pwm_a.ChangeDutyCycle(kurtarma_sol)
+                pwm_b.ChangeDutyCycle(kurtarma_sag)
+                time.sleep(kurtarma_suresi_efektif)
                 # Kurtarma sonrasi kaldigi yavaslama moduna geri don
                 pwm_a.ChangeDutyCycle(temel_sol)
                 pwm_b.ChangeDutyCycle(temel_sag)
                 son_mesafe_degisim_zamani = time.time()  # sayaci sifirla
+
 
             # 2. kademe: esige iyice yaklasinca daha da yavasla (once kontrol
             # edilmeli, cunku 2. kademe esigi 1. kademe esiginin icinde kalir)
