@@ -8,8 +8,8 @@ design project: a Raspberry Pi based autonomous mobile robot that moves on an
 
 ## Core Rules
 
-- ESP32 is not used.
-- Arduino Uno is used for some sensors and motor connections.
+- ESP32 is used within Arduino Uno R4 Wifi Module to connect beam break sensors to RPi via Wifi. 
+- Arduino Uno is used for ultrasonic distance, BNO055 IMU and RGB detection sensors
 - The main processor is Raspberry Pi.
 - Robot software is written in Python.
 - The operator interface is built with Flask.
@@ -18,10 +18,10 @@ design project: a Raspberry Pi based autonomous mobile robot that moves on an
 ## Technologies
 
 - Arduino Uno
+- Arduino Uno R4 Wifi
 - Raspberry Pi
 - Python
 - Flask
-- OpenCV
 - GPIO-compatible motor, sensor, and shooting mechanism control
 
 ## Repository Structure
@@ -38,26 +38,9 @@ media/             Photos and videos
 
 software/
   flask_gui/       Flask web control panel
-  raspberry_pi/    Robot control, navigation, vision, and shooting modules
-
-tests/             Python tests
+  raspberry_pi/    
+  arduino/         Beam break sensors, bridge connection between RPi and Uno.
 ```
-
-## Current Software Architecture
-
-The Raspberry Pi layer is split into small modules:
-
-- `config.py`: court dimensions, GPIO pin placeholders, and runtime settings.
-- `robot.py`: high-level robot state machine and command orchestration.
-- `motor_control.py`: drive-base interface with a safe simulated implementation.
-- `sensors.py`: distance sensor abstraction.
-- `navigation/`: court pose and scoring-zone navigation helpers.
-- `shooting/`: ping-pong shooting mechanism logic.
-- `vision/`: hoop/court detection interface placeholder.
-
-The Flask app exposes a browser-based control panel and JSON endpoints for
-status, manual drive, autonomous step, shooting, score tracking, task history,
-reset, and emergency stop.
 
 ## Requirements Traceability
 
