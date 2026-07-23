@@ -42,6 +42,26 @@ GUNCELLEMELER (bu surum):
      ayarlanabilir - eger hala kirmizida kaliyorsa GECISLER[2]'deki
      esik_cm degerini daha da kucultun (orn. 20), robot duvara/kenara
      fazla yaklasip carpma riski oluyorsa biraz artirin.
+  8) BUYUK ACILI DONUSLER BOLUNUYOR (YENI): 100 dereceden BUYUK her
+     donus (pozisyona ilk varista VE baseline'a geri donerken) artik
+     TEK PARCA degil, iki esit parcaya bolunerek yapiliyor - ayni
+     GECISLER'deki 90 derecelik donusler icin zaten var olan mantik
+     (bkz. _donus_uygula), simdi POZISYONLAR'in kendi ilk_aci
+     donuslerine de (yeni _buyuk_aci_donus_uygula fonksiyonuyla)
+     uygulaniyor. AMAC: buyuk tek parca donuslerde overshoot riskini
+     azaltmak - iki kucuk donus, aralarinda ayri ince-duzeltme/settle
+     firsati sunuyor, kumulatif hata tek parcaya kiyasla daha dusuk
+     kaliyor.
+  9) SKOR SAYIMI ARTIK ESC'YE SIKI SIKIYA BAGLI (BUG DUZELTMESI): eskiden
+     skor_dinleyici.saymaya_basla() pozisyon_calistir() icinde, ilk donus
+     bitince (ESC HENUZ 0'DAYKEN, hatta interaktif ESC GUI'sinde "ESC hizi
+     bekleniyor" asamasindayken bile) tetikleniyordu - yani flywheel'lar
+     DONMUYORKEN cemberden gecen bir cisim yanlislikla sayilabiliyordu.
+     Simdi sayim, ESC gercekten bir hiza ayarlandiktan (esc.hiz_ayarla
+     (esc_hiz) cagrisindan) HEMEN SONRA sweep_atis_yap() icinde baslatiliyor,
+     ve ESC 0'a dondurulmeden HEMEN ONCE (yine sweep_atis_yap icinde)
+     durduruluyor - boylece skor SADECE flywheel'lar fiilen donuyorken
+     artabiliyor.
 
 AMAC: Robotun donuslerde birkac derecelik sapma yasayabilmesi yuzunden
 ("tam 90 dönemiyor" sorunu) TEK bir sabit aciya guvenmek yerine, o
@@ -49,11 +69,11 @@ acinin etrafindaki birkac komsu aciyi da otomatik deneyerek potansiyel
 sapmanin sonucunu (top cemberden gecmemesi) telafi etmeye calisir.
 
 POZISYONLAR (5 atis: kirmizidan 3, yesilden 2):
-  1. atis (Kirmizi): 89 derece SOL, ESC %12.4, sweep SAGA (2 derece adim), maks 3 tekrar.
-  2. atis (Kirmizi): 93 derece SOL, ESC %12.4, sweep SAGA, maks 3.
-  3. atis (Kirmizi): 100 derece SOL, ESC %12.4, sweep SAGA, maks 3.
-  4. atis (Yesil): 10 derece SOL, ESC %11, sweep SAGA, maks 3.
-  5. atis (Yesil): 100 derece SAG, ESC %11, sweep SOLA (yon TERS!), maks 2.
+  1. atis (Kirmizi): 87 derece SOL, ESC %12.4, sweep SAGA (2 derece adim), maks 3 tekrar.
+  2. atis (Kirmizi): 100 derece SOL, ESC %12.4, sweep SAGA, maks 3.
+  3. atis (Kirmizi): 108 derece SOL, ESC %12.4, sweep SAGA, maks 3.
+  4. atis (Yesil): 30 derece SOL, ESC %11, sweep SAGA, maks 3.
+  5. atis (Yesil): 80 derece SAG, ESC %11, sweep SOLA (yon TERS!), maks 2.
      Bu pozisyondan sonra robot GERI DONMEZ, kod biter (6. pozisyon YOK).
 
 GECISLER (pozisyonlar arasi hareket, HER ZAMAN once baseline'a - yani
@@ -112,23 +132,61 @@ def _durdurma_kontrol_et(dur_bayragi):
         raise TestDurduruldu()
 
 
+# ---------- Buyuk acili donusleri bolen ortak esik ----------
+BUYUK_ACI_ESIGI = 100.0  # derece - bu esigin USTUNDEKI donusler 2 parcaya bolunur
+
+
+def _buyuk_aci_donus_uygula(aci, yon, bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=None):
+    """
+    Bir donusu uygular. BUYUK_ACI_ESIGI'nin (100 derece) USTUNDEKI aciler
+    OTOMATIK olarak iki ESIT parcaya bolunerek yapilir - ayni GECISLER'deki
+    90 derecelik donusler icin _donus_uygula()'da kullanilan mantik:
+      - Her iki alt-donus de ayri ayri guvenli_donus() cagrisi olarak
+        calisir, aralarinda ayri bir ince-duzeltme (fine correction) ve
+        settle bekleme adimi olusur - kumulatif hatanin TEK parca buyuk
+        bir donuse kiyasla daha dusuk kalmasi beklenir.
+      - Ayrica her iki parca da 45 derecenin uzerinde kalabilir (orn. 108
+        derece -> 54+54), bu yuzden soft-start rampasi her ikisinde de
+        devreye girer - amac rampa atlamak degil, TEK BIR UZUN donus
+        yerine iki KISA donus yaparak overshoot birikimini bolmek.
+
+    BUYUK_ACI_ESIGI'nin ALTINDAKI/ESIT aciler (orn. pozisyonlarin kucuk
+    ilk_aci degerleri, sweep adimlari) DEGISTIRILMEDEN tek parca donuyor.
+
+    Donus: True (tum alt-donusler basarili) / False (herhangi biri basarisiz)
+    """
+    if aci > BUYUK_ACI_ESIGI:
+        yari = aci / 2.0
+        parcalar = [yari, yari]
+    else:
+        parcalar = [aci]
+
+    for i, parca in enumerate(parcalar, start=1):
+        if len(parcalar) > 1:
+            olay_fn(f"  {aci} derece {yon} yone donus - "
+                    f"parca {i}/{len(parcalar)} ({parca:.1f} derece)...")
+        if not guvenli_donus(parca, yon, bridge, pwm_a, pwm_b, dur_bayragi=dur_bayragi):
+            return False
+    return True
+
+
 # ---------- Pozisyon tanimlari (deneysel - kolay ayarlanabilir) ----------
 # NOT: sweep_bekleme 20.0 -> 10.0, sweep_adim 3.0 -> 2.0 (kullanici istegiyle).
 # 6. POZISYON TAMAMEN KALDIRILDI - robot artik sadece 5 atis pozisyonuna
 # gidiyor (kirmizidan 3, yesilden 2), 6. atisa hic gitmiyor.
-POZISYON_1 = dict(ilk_yon="sol", ilk_aci=89.0, esc_hiz=12.4,
+POZISYON_1 = dict(ilk_yon="sol", ilk_aci=87.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="1. atis")
 POZISYON_2 = dict(ilk_yon="sol", ilk_aci=98.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="2. atis")
-POZISYON_3 = dict(ilk_yon="sol", ilk_aci=110.0, esc_hiz=12.4,
+POZISYON_3 = dict(ilk_yon="sol", ilk_aci=108.0, esc_hiz=12.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="3. atis")
-POZISYON_4 = dict(ilk_yon="sol", ilk_aci=19.0, esc_hiz=11.0,
+POZISYON_4 = dict(ilk_yon="sol", ilk_aci=30.0, esc_hiz=11.0,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="4. atis")
-POZISYON_5 = dict(ilk_yon="sag", ilk_aci=106.0, esc_hiz=11.0,
+POZISYON_5 = dict(ilk_yon="sag", ilk_aci=80.0, esc_hiz=11.0,
                    sweep_yon="sol", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=2, etiket="5. atis")
 
@@ -161,7 +219,7 @@ POZISYONLAR = [POZISYON_1, POZISYON_2, POZISYON_3, POZISYON_4, POZISYON_5]
 GECISLER = [
     dict(ekstra_donus=None, hareket="mesafe"),                                          # 1 -> 2
     dict(ekstra_donus=None, hareket="mesafe"),                                          # 2 -> 3
-    dict(ekstra_donus=("sol", 90.0), hareket="sure", sure_s=0.1, renk_dogrula=True,
+    dict(ekstra_donus=("sol", 90.0), hareket="sure", sure_s=0.075, renk_dogrula=True,
          hiz_carpani=1.3 / 1.5),                                                       # 3 -> 4 (kirmizi->yesil, sure ile - 0.7s, 1.3x hiz)
     dict(ekstra_donus=("sol", 90.0), hareket="mesafe"),                                # 4 -> 5
 ]
@@ -196,6 +254,15 @@ def girdi_bekle(sure=10.0, skor_dinleyici=None, dur_bayragi=None,
                   -> bu pozisyonda break-beam sensorleri topun cemberden
                      2 kez gectigini algiladi, pozisyon OTOMATIK bitirilmeli
 
+    COOLDOWN TELAFISI (YENI): skor_dinleyici her tetiklendiginde (basarili
+    bir gecis sayildiginda) bir cooldown baslatiyor (bkz. skor_dinleyici.py -
+    top potadan sekip geri cikarsa ayni atisin 2 kez sayilmasini engellemek
+    icin). Bu cooldown suresinin, sweep'in asil bekleme suresinden (orn.
+    10s) CALMAMASI icin: her kontrol turunde skor_dinleyici.
+    cooldown_suresini_tuket() cagrilir - yeni baslamis bir cooldown varsa,
+    donen sure kadar 'bitis' zaman damgasi ILERI OTELENIR. Yani toplam
+    bekleme suresi = sure + (bu pencerede olusan tum cooldown'larin toplami).
+
     Donus: "devam"     -> kullanici pozisyonu bitirmek istedi
            "sonraki"   -> kullanici bir sonraki sweep acisina hemen gecmek istedi
            "iki_gecis" -> 2 basarili top gecisi algilandi, pozisyon bitirilmeli
@@ -214,6 +281,13 @@ def girdi_bekle(sure=10.0, skor_dinleyici=None, dur_bayragi=None,
             if guncel_esc_hizi != son_uygulanan_esc_hizi:
                 esc.hiz_ayarla(guncel_esc_hizi)
                 son_uygulanan_esc_hizi = guncel_esc_hizi
+
+        if skor_dinleyici is not None:
+            # Yeni baslamis bir cooldown varsa, bekleme suresini o kadar
+            # UZAT - boylece cooldown, asil 10s'lik pencereden CALMAZ.
+            ek_sure = skor_dinleyici.cooldown_suresini_tuket()
+            if ek_sure > 0:
+                bitis += ek_sure
 
         kalan = bitis - time.time()
         if kalan <= 0:
@@ -238,7 +312,7 @@ def girdi_bekle(sure=10.0, skor_dinleyici=None, dur_bayragi=None,
 def sweep_atis_yap(bridge, pwm_a, pwm_b, esc, esc_hiz, sweep_yon,
                     sweep_adim, sweep_bekleme, maks_sweep, olay_fn, etiket,
                     skor_dinleyici=None, dur_bayragi=None,
-                    esc_hiz_kontrolcusu=None):
+                    esc_hiz_kontrolcusu=None, puan=0):
     """
     ESC'yi esc_hiz'e ayarlayip atisa birakir, sonra su durumlardan biri
     gerceklesene kadar her sweep_bekleme saniyede bir sweep_adim derece
@@ -298,6 +372,17 @@ def sweep_atis_yap(bridge, pwm_a, pwm_b, esc, esc_hiz, sweep_yon,
                 f"atisa birakiliyor...")
     esc.hiz_ayarla(esc_hiz)
 
+    # SKOR SAYIMI: ESC gercekten calismaya BASLADIGI (yani flywheel'lar
+    # donmeye basladigi) andan itibaren sayiliyor - daha ONCESI DEGIL.
+    # (BUG DUZELTMESI: eskiden pozisyon_calistir() icinde, ESC henuz 0'da
+    # veya interaktif GUI'de hiz bekliyorken bile sayim aktif oluyordu -
+    # flywheel donmuyorken cemberden gecen bir cisim yanlislikla
+    # sayilabiliyordu. Simdi sayim, esc.hiz_ayarla(esc_hiz) GERCEKTEN
+    # cagrildiktan SONRA baslatiliyor - yani interaktif ESC GUI'sinde
+    # "ESC hizi bekleniyor" asamasinda ASLA sayim aktif degil.)
+    if skor_dinleyici is not None:
+        skor_dinleyici.saymaya_basla(puan)
+
     try:
         sweep_toplam = 0.0
         sweep_sayaci = 0
@@ -350,6 +435,12 @@ def sweep_atis_yap(bridge, pwm_a, pwm_b, esc, esc_hiz, sweep_yon,
         # ESC KURALI: pozisyon bitti (ne sebeple olursa olsun) - robot bir
         # SONRAKI pozisyona varana kadar ESC BOŞTA kalmali. TestDurduruldu
         # firlasa bile bu finally calisir, ESC guvenli sekilde kapatilir.
+        #
+        # SIRALAMA ONEMLI: once sayim durduruluyor, SONRA ESC kapatiliyor -
+        # boylece ESC kapanma anindaki cok kisa pencerede bile (varsa) gelen
+        # bir sensor tetiklemesi yanlislikla sayilmaz.
+        if skor_dinleyici is not None:
+            skor_dinleyici.saymayi_durdur()
         esc.hiz_ayarla(0)
         olay_fn(f"  [{etiket}] ESC durduruldu (0) - pozisyon tamamlandi.")
 
@@ -358,10 +449,13 @@ def pozisyon_calistir(bridge, pwm_a, pwm_b, esc, p, olay_fn,
                        skor_dinleyici=None, puan=0, dur_bayragi=None,
                        esc_hiz_kontrolcusu=None):
     """
-    Bir atis pozisyonunda: ilk donusu yapar, sayimi baslatir (skor_dinleyici
-    verilmisse - bu pozisyonun bolge puanini kaydeder), ESC'yi ayarlayip
-    sweep atisini calistirir, sonunda sayimi durdurur (hareket/gecis
-    sirasinda yanlislikla sayilmasin diye).
+    Bir atis pozisyonunda: ilk donusu yapar (100 dereceden BUYUKSE otomatik
+    2 parcaya bolunur - bkz. _buyuk_aci_donus_uygula), ESC'yi ayarlayip
+    sweep atisini calistirir. Skor SAYIMI artik BURADA DEGIL, sweep_atis_yap
+    icinde ESC gercekten calismaya basladigi anda baslatilip ESC kapanmadan
+    hemen once durduruluyor (bkz. sweep_atis_yap - "SKOR SAYIMI" notu) -
+    boylece ilk donus/ESC bekleme gibi flywheel'in DONMEDIGI hicbir
+    asamada yanlislikla sayim olmaz.
 
     esc_hiz_kontrolcusu verilirse: ESC hizi p["esc_hiz"] SABIT degerinden
     DEGIL, GUI'den (interaktif olarak) alinir - bkz. sweep_atis_yap.
@@ -373,31 +467,27 @@ def pozisyon_calistir(bridge, pwm_a, pwm_b, esc, p, olay_fn,
     """
     olay_fn(f"\n=== {p['etiket']}: {p['ilk_aci']} derece {p['ilk_yon']} "
             f"yone donuluyor ===")
-    if not guvenli_donus(p["ilk_aci"], p["ilk_yon"], bridge, pwm_a, pwm_b,
-                          dur_bayragi=dur_bayragi):
+    if not _buyuk_aci_donus_uygula(p["ilk_aci"], p["ilk_yon"], bridge, pwm_a, pwm_b,
+                                     olay_fn, dur_bayragi=dur_bayragi):
         _durdurma_kontrol_et(dur_bayragi)
         raise RuntimeError(f"{p['etiket']}: ilk donus basarisiz oldu")
 
-    if skor_dinleyici is not None:
-        skor_dinleyici.saymaya_basla(puan)
-
-    try:
-        return sweep_atis_yap(
-            bridge, pwm_a, pwm_b, esc, p["esc_hiz"], p["sweep_yon"],
-            p["sweep_adim"], p["sweep_bekleme"], p["maks_sweep"],
-            olay_fn, p["etiket"], skor_dinleyici=skor_dinleyici,
-            dur_bayragi=dur_bayragi, esc_hiz_kontrolcusu=esc_hiz_kontrolcusu,
-        )
-    finally:
-        if skor_dinleyici is not None:
-            skor_dinleyici.saymayi_durdur()
+    return sweep_atis_yap(
+        bridge, pwm_a, pwm_b, esc, p["esc_hiz"], p["sweep_yon"],
+        p["sweep_adim"], p["sweep_bekleme"], p["maks_sweep"],
+        olay_fn, p["etiket"], skor_dinleyici=skor_dinleyici,
+        dur_bayragi=dur_bayragi, esc_hiz_kontrolcusu=esc_hiz_kontrolcusu,
+        puan=puan,
+    )
 
 
 def baseline_don(bridge, pwm_a, pwm_b, p, sweep_toplam, olay_fn, dur_bayragi=None):
     """
     Bir pozisyonun sweep'ini geri alip (varsa), sonra ilk donusun
     TERSINE donerek pozisyona GIRIS acisina (baseline, 0 derece relatif)
-    tam olarak geri doner.
+    tam olarak geri doner. p["ilk_aci"] 100 dereceden BUYUKSE, bu geri
+    donus de otomatik 2 parcaya bolunur (bkz. _buyuk_aci_donus_uygula) -
+    gidiste bolunuyorsa donuste de ayni sekilde bolunmesi tutarli olur.
     """
     if sweep_toplam > 0:
         olay_fn(f"  {p['etiket']}: sweep geri aliniyor ({sweep_toplam:.1f} "
@@ -408,8 +498,8 @@ def baseline_don(bridge, pwm_a, pwm_b, p, sweep_toplam, olay_fn, dur_bayragi=Non
             raise RuntimeError(f"{p['etiket']}: sweep geri alma donusu basarisiz oldu")
     olay_fn(f"  {p['etiket']}: {p['ilk_aci']} derece {ters_yon(p['ilk_yon'])} "
             f"yone donup baslangica (0 derece) geri donuluyor...")
-    if not guvenli_donus(p["ilk_aci"], ters_yon(p["ilk_yon"]), bridge, pwm_a, pwm_b,
-                          dur_bayragi=dur_bayragi):
+    if not _buyuk_aci_donus_uygula(p["ilk_aci"], ters_yon(p["ilk_yon"]), bridge, pwm_a, pwm_b,
+                                     olay_fn, dur_bayragi=dur_bayragi):
         _durdurma_kontrol_et(dur_bayragi)
         raise RuntimeError(f"{p['etiket']}: baseline donusu basarisiz oldu")
 
@@ -465,7 +555,8 @@ def _donus_uygula(aci, yon, bridge, pwm_a, pwm_b, olay_fn, dur_bayragi=None):
     90 disindaki aciler (ornegin pozisyonlarin kendi ilk_aci/baseline
     donusleri) DEGISTIRILMEDEN tek parca olarak donuluyor - bu fonksiyon
     SADECE GECISLER listesindeki ekstra_donus (90 derecelik) donusler icin
-    kullaniliyor.
+    kullaniliyor. (Pozisyonlarin kendi buyuk ilk_aci donusleri icin artik
+    _buyuk_aci_donus_uygula() kullaniliyor - bkz. yukarida.)
 
     Donus: True (tum alt-donusler basarili) / False (herhangi biri basarisiz)
     """
@@ -570,7 +661,7 @@ def gecis_uygula(bridge, pwm_a, pwm_b, gecis, olay_fn, dur_bayragi=None):
 
 def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PIN,
                               skor_dinleyici=None, dur_bayragi=None,
-                              esc_hiz_kontrolcusu=None):
+                              esc_hiz_kontrolcusu=None, durum_fn=None):
     """
     calistir_ozel_rota()'nin kullanicidan aci sorma kismini kaldirip
     yerine sabit-aci + otomatik-sweep mantigi koyan, 6 atis pozisyonlu
@@ -592,10 +683,35 @@ def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PI
     ESC KURALI: Robot 1. pozisyona ULASANA kadar (yani asagidaki 1-4.
     baslangic adimlari sirasinda) ESC KAPALI (0) tutulur - ucus motorlari
     sadece bir atis pozisyonunda, sweep_atis_yap tarafindan calistirilir.
+
+    durum_fn (YENI, GUI icin YAPILANDIRILMIS pozisyon/bolge bilgisi):
+    verilirse, robot her onemli asama gecisinde su sekilde bir sozlukle
+    cagirilir - GUI bunu olay_fn'in serbest metin logundan AYRI, ozel bir
+    panelde gosterebilir:
+
+        {
+            "asama": "atis" | "hareket" | "tamamlandi" | "durduruldu" | "hata",
+            "pozisyon_no": int (1-tabanli) | None,
+            "toplam_pozisyon": int,
+            "etiket": str,           # orn. "3. atis" ya da "3. atis -> 4. atis"
+            "bolge": str | None,     # orn. "KIRMIZI (3 puanlik bolge)"
+            "puan": int | None,      # o pozisyonun/gecisin bolge puani
+        }
     """
     esc = EscKontrol(pin=esc_pin)
     esc.baslat()
     esc.hiz_ayarla(0)  # 1. pozisyona varana kadar ESC KAPALI kalsin
+
+    def _durum_bildir(asama, pozisyon_no=None, etiket="", bolge=None, puan=None):
+        if durum_fn is not None:
+            durum_fn({
+                "asama": asama,
+                "pozisyon_no": pozisyon_no,
+                "toplam_pozisyon": len(POZISYONLAR),
+                "etiket": etiket,
+                "bolge": bolge,
+                "puan": puan,
+            })
 
     try:
         # ---- 1) Saga 30 derece don ----
@@ -627,7 +743,9 @@ def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PI
         # =====================================================
         try:
             for i, p in enumerate(POZISYONLAR):
-                _, puan = bolge_bildir(bridge, olay_fn)
+                bolge_aciklama, puan = bolge_bildir(bridge, olay_fn)
+                _durum_bildir("atis", pozisyon_no=i + 1, etiket=p["etiket"],
+                              bolge=bolge_aciklama, puan=puan)
                 sweep_toplam = pozisyon_calistir(
                     bridge, pwm_a, pwm_b, esc, p, olay_fn,
                     skor_dinleyici=skor_dinleyici, puan=puan,
@@ -637,6 +755,10 @@ def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PI
 
                 son_pozisyon = (i == len(POZISYONLAR) - 1)
                 if not son_pozisyon:
+                    sonraki_etiket = POZISYONLAR[i + 1]["etiket"]
+                    _durum_bildir("hareket", pozisyon_no=i + 1,
+                                  etiket=f"{p['etiket']} -> {sonraki_etiket}",
+                                  bolge=bolge_aciklama, puan=puan)
                     baseline_don(bridge, pwm_a, pwm_b, p, sweep_toplam, olay_fn,
                                  dur_bayragi=dur_bayragi)
                     gecis_uygula(bridge, pwm_a, pwm_b, GECISLER[i], olay_fn,
@@ -644,15 +766,19 @@ def calistir_ozel_rota_sweep(bridge, pwm_a, pwm_b, olay_fn=print, esc_pin=ESC_PI
                 # son pozisyonda (5. atis) hicbir geri donus/hareket yok
         except RuntimeError as e:
             olay_fn(f"HATA: {e}")
+            _durum_bildir("hata", etiket=str(e))
             return False
 
         olay_fn("\nOzel navigasyon test rotasi (sweep versiyonu) tamamlandi "
                 "(6 atis pozisyonu: kirmizidan 3, yesilden 3).")
+        _durum_bildir("tamamlandi", pozisyon_no=len(POZISYONLAR),
+                      etiket="Test tamamlandi")
         return True
 
     except TestDurduruldu:
         motorlari_durdur(pwm_a, pwm_b)
         olay_fn("ACIL DURDUR / iptal sinyali alindi - test guvenli sekilde sonlandirildi.")
+        _durum_bildir("durduruldu", etiket="Acil durdur / iptal")
         return False
 
     finally:

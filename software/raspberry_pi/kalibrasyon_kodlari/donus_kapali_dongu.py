@@ -74,6 +74,20 @@ def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_ma
     EEPROM'dan kalibrasyon yuklendiyse hemen devam eder; yuklenmediyse en fazla
     otonom_maks_bekleme saniye sys=3'u bekler, sonra ne durumda olursa olsun
     devam eder (sonsuza kadar beklemez, demo robotu kilitlenmez).
+
+    GUNCELLEME (BUG DUZELTMESI - "bagimsiz testte duzgun, sweep akisinda
+    duzensiz/hizli donuyor" sorunu): Otonom modda EEPROM kalibrasyonu
+    yukluyse eskiden HICBIR CANLI DOGRULAMA yapilmadan aninda donuluyordu -
+    ama Arduino'nun raporladigi sys/gyro/accel/mag degerleri HER ACILISTA
+    sifirlanir (yorum yukarida), yani offsetler yuklu olsa bile fuzyon
+    algoritmasinin bunlari GERCEKTEN kullanip kullanmadigi/dogru sonuc
+    verip vermedigi canli olarak TEYIT EDILMIYORDU. Su an EEPROM+otonom
+    durumunda bile KISA (EEPROM_DOGRULAMA_SURESI, 2s) ve SINIRLI bir canli
+    kontrol yapiliyor - gyro hedefe ulasirsa hemen devam edilir, ulasmazsa
+    (offsetler bayat/uyumsuz olabilir) acikca UYARILIP yine de devam edilir
+    (otonom ruhuna uygun - sinirsiz beklemiyor). Ayrica otonom dongude
+    (EEPROM olmayan durum) artik SADECE sys degil GYRO da kontrol ediliyor -
+    donus dogrulugunu en cok etkileyen alt-sistem gyro oldugu icin.
     """
     print("\n=== KALIBRASYON KONTROLU ===")
 
@@ -83,7 +97,24 @@ def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_ma
 
     if cal.get("eeprom_yuklendi"):
         if otonom:
-            print("EEPROM'dan kalibrasyon yuklu - otonom modda dogrudan devam ediliyor.\n")
+            EEPROM_DOGRULAMA_SURESI = 2.0  # saniye - EEPROM offsetlerinin gercekten
+                                             # ise yaradigini KISACA teyit etmek icin
+            print(f"EEPROM'dan kalibrasyon yuklu - otonom modda kisa bir canli "
+                  f"dogrulama yapiliyor (en fazla {EEPROM_DOGRULAMA_SURESI}s)...")
+            baslangic = time.time()
+            while time.time() - baslangic < EEPROM_DOGRULAMA_SURESI:
+                bridge.request_calibration_status()
+                time.sleep(0.2)
+                cal = bridge.get_calibration()
+                gyro_v = cal["gyro"] if cal["gyro"] is not None else 0
+                if gyro_v >= hedef_gyro:
+                    print(f"  gyro={gyro_v} - EEPROM offsetleri dogrulandi, devam ediliyor.\n")
+                    return True
+            gyro_son = cal.get("gyro")
+            print(f"  UYARI: {EEPROM_DOGRULAMA_SURESI}s icinde gyro hedefe ulasmadi "
+                  f"(son deger: {gyro_son}) - EEPROM offsetleri bayat/uyumsuz olabilir. "
+                  f"Yine de otonom modda devam ediliyor, ama donus dogrulugu "
+                  f"dusuk olabilir.\n")
             return True
         print("Arduino'da onceden kaydedilmis bir kalibrasyon yuklu.")
         print("(NOT: sys/gyro/accel/mag degerleri her acilista sifirlanir, "
@@ -103,12 +134,14 @@ def kalibrasyon_bekle(bridge, hedef_sys=3, hedef_gyro=3, hedef_accel=1, hedef_ma
             time.sleep(0.3)
             cal = bridge.get_calibration()
             sys_v = cal["sys"] if cal["sys"] is not None else 0
-            if sys_v >= hedef_sys:
-                print(f"sys={sys_v} - otonom modda devam ediliyor.\n")
+            gyro_v = cal["gyro"] if cal["gyro"] is not None else 0
+            if sys_v >= hedef_sys and gyro_v >= hedef_gyro:
+                print(f"sys={sys_v} gyro={gyro_v} - otonom modda devam ediliyor.\n")
                 return True
             time.sleep(0.5)
-        print(f"UYARI: Otonom bekleme suresi doldu (sys={cal.get('sys')}), "
-              f"mevcut durumla devam ediliyor. Sonuclar daha az hassas olabilir.\n")
+        print(f"UYARI: Otonom bekleme suresi doldu (sys={cal.get('sys')}, "
+              f"gyro={cal.get('gyro')}), mevcut durumla devam ediliyor. "
+              f"Sonuclar daha az hassas olabilir.\n")
         return True
 
     print("Her parametre 3'e (mukemmel) ulasana kadar bekleniyor.\n")
@@ -459,6 +492,29 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         EN GEC bir sonraki kontrol turunda (yaklasik 20ms) motoru durdurup
         fonksiyondan hemen cikar - Acil Durdur / Ctrl+C icin kullanilir.
 
+    GUNCELLEME (OVERSHOOT AZALTMA - aktif fren darbesi): Motor, "kalan <=
+    TOLERANS" oldugu ANDA durdurulur - ama bridge.get_heading() sensor/
+    iletisim zincirinden gecikmeli geldigi ve motor coast ile (aktif fren
+    olmadan) durdugu icin, robot bu karardan SONRA da birkac derece daha
+    fiziksel olarak donmeye devam edebiliyordu (hedefi asma). Robotun
+    ANLIK ACISAL HIZI surekli olculur (EMA ile yumusatilarak); tam
+    "kalan <= TOLERANS" aninda, o hiza ORANTILI COK KISA (birkac-birkac
+    on ms) bir TERS YONLU fren darbesi uygulanip hemen kesilir - bu,
+    ataletle devam eden donusu FIZIKSEL olarak dizginler. (Daha once
+    denenen "ongorulu/tahmine dayali erken durma" yaklasimi - hedefe
+    varmadan tahmini bir sure kadar erken durmak - acik dongu bir tahmine
+    dayandigi ve fiziksel testte tutarsiz sonuclar (bazen hala fazla,
+    ince ayar yapilinca eksik donme) verdigi icin TERK EDILDI; yerine bu
+    olcume dayali, kapali dongu fren darbesi kondu.) Ayrica motor
+    durduktan sonraki "settle" bekleme fazinda (magnetometer sakinlesmesi)
+    hem esik sikilastirildi (15->8 derece) hem de heading gercekten
+    sabitlenince ERKEN CIKIS eklendi - boylece bu fazda hayali/gurultuye
+    dayali derece birikimi riski de azaldi.
+
+    NOT: FREN_KATSAYISI ve FREN_MAKS_SURESI ampirik baslangic degerleridir -
+    fiziksel testle ince ayar gerekebilir; fonksiyon govdesindeki yorumlara
+    bakin.
+
     Donus deger: gercekte donulen toplam derece (float)
     """
     kendi_bridge = False
@@ -593,6 +649,66 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         pencere_baslangic_heading = onceki_heading
         mevcut_duty = HIZ_NORMAL
 
+        # =====================================================================
+        # AKTIF FREN DARBESI (brake pulse) - OVERSHOOT'UN ANA SEBEBINE COZUM
+        #
+        # SORUN: bridge.get_heading() ANLIK gercek aciyi degil, I2C okuma ->
+        # Arduino dongusu -> seri iletim -> Python thread zincirinde birikmis
+        # bir GECIKMEYLE gelen bir onceki ornegi verir. Ayrica motor "coast"
+        # ile (aktif fren olmadan) durur, yani sinyal kesildikten sonra da
+        # ataletle donmeye devam eder. Bu ikisi birlikte "gereginden fazla
+        # donme" (overshoot) sikayetinin ana sebebiydi.
+        #
+        # ONCEKI DENEME (kaldirildi): "Ongorulu durma" - hedefe varmadan,
+        # tahmini bir GECIKME_SURESI kadar ERKEN durarak overshoot'u
+        # telafi etmeye calisiyordu. Bu SAF TAHMINE dayaniyordu (acik
+        # dongu) - gercek momentum/surtunme/pil gerilimi degiskenligini
+        # olcmuyordu, sadece "muhtemelen bu kadar sürer" varsayiyordu. Fiziksel
+        # testte tutarsiz sonuclar verdi (bazen hala fazla donuyor, ince
+        # ayar yapilinca bu sefer eksik donuyordu) - bu yuzden TAMAMEN
+        # KALDIRILDI.
+        #
+        # YENI YAKLASIM: Robotun O ANKI ACISAL HIZINI (derece/saniye,
+        # EMA ile yumusatilmis) olcmeye devam ediyoruz, ama bunu bir "ne
+        # zaman durayim" tahmini icin degil, "durma aninda momentumu
+        # SONDURMEK icin ne kadar guclu bir fren atisi gerekir" hesabi
+        # icin kullaniyoruz. "kalan <= TOLERANS" oldugu GERCEK anda (tahmin
+        # degil), motor once durdurulur, SONRA o anki hiza ORANTILI, COK
+        # KISA (birkac-birkac on ms) bir TERS YONLU darbe uygulanip hemen
+        # kesilir - bu, ataletle devam eden donusu FIZIKSEL olarak
+        # dizginler. Daha once denenip "motor kilitlenmesine" yol actigi
+        # icin terk edilen SÜREKLİ aktif fren (IN1=IN2=HIGH kisa devre)
+        # ile KARISTIRILMASIN - bu COK KISA ve TERS YONLU bir darbe,
+        # sürdürülen bir kilitleme degil, bu yuzden ayni riski tasimiyor.
+        #
+        # FREN_KATSAYISI ve FREN_MAKS_SURESI AMPIRIK BASLANGIC
+        # DEGERLERIDIR - fiziksel testle ince ayar gerekebilir:
+        #   - HALA fazla donuyorsa (overshoot devam ediyorsa): FREN_KATSAYISI'ni
+        #     BUYUT (daha guclu/uzun fren) YA DA FREN_DUTY'yi arttir.
+        #   - Robot hedefin GERISINDE kaliyorsa (ters yonde asiriya
+        #     kaciyorsa): FREN_KATSAYISI'ni KUCULT.
+        # =====================================================================
+        FREN_KATSAYISI = 2 # saniye / (derece/saniye) - anlik hiza orantili fren suresi
+        FREN_MAKS_SURESI = 0.2   # saniye - GUVENLIK TAVANI, bunun uzerine cikmaz
+        FREN_MIN_HIZ_ESIGI = 5.0  # derece/saniye - bu hizin altinda fren atisi YAPILMAZ
+                                    # (zaten neredeyse duruyorsa ters darbe gereksiz/zararli olur)
+        FREN_DUTY = HIZ_YAVAS      # ters yonde uygulanan duty - kontrollu, TAM HIZ DEGIL
+        HIZ_EMA_ALPHA = 0.4  # yeni hiz ornegine verilen agirlik (0-1) - dusuk deger daha
+                               # yumusak/gecikmeli ama gurultuye dayanikli bir tahmin verir,
+                               # yuksek deger daha hizli tepki ama gurultuye daha duyarli olur
+        # BUG DUZELTMESI ("103 derece donemedi" sorunu, hala GECERLI): tek bir
+        # gurultulu/EMI kaynakli ornek (ozellikle motor daha yeni harekete
+        # gecerken, magnetik girisimin en yuksek oldugu anda), EMA'nin ILK
+        # agirlikli orneginde fiziksel olarak IMKANSIZ bir hiz uretebiliyordu
+        # (orn. 600+ derece/s) - bu da fren darbesini gereksiz yere COK UZUN
+        # yapip robotu TERS yonde fazla dondurebilirdi. MAKS_GECERLI_HIZ, tek
+        # bir ornegin EMA'ya bu kadar buyuk bir sicramayla giremeyecegi bir
+        # tavan koyar.
+        MAKS_GECERLI_HIZ = 300.0  # derece/saniye - HIZ_NORMAL=45 duty'de bile normalde
+                                    # gozlemlenen ~90-150 derece/s'nin COK uzerinde, guvenli bir tavan
+        anlik_hiz_derece_s = 0.0  # EMA ile guncellenen, o anki tahmini acisal hiz
+        son_hiz_olcum_zamani = time.time()
+
         while True:
             if _durdurma_istendi_mi(dur_bayragi):
                 print("DURDURMA sinyali alindi - ana donus dongusu aninda iptal ediliyor.")
@@ -660,9 +776,41 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             if delta is not None:
                 toplam_donus += delta
 
+                # ---- Acisal hiz tahminini guncelle (EMA) ----
+                simdi_hiz = time.time()
+                dt_hiz = simdi_hiz - son_hiz_olcum_zamani
+                if dt_hiz > 0:
+                    anlik_ornek_hizi = abs(delta) / dt_hiz
+                    # BUG DUZELTMESI: tek bir gurultulu ornek fiziksel olarak
+                    # imkansiz bir hiz uretmesin diye tavan uygulaniyor -
+                    # bkz. MAKS_GECERLI_HIZ tanimindaki not.
+                    anlik_ornek_hizi = min(anlik_ornek_hizi, MAKS_GECERLI_HIZ)
+                    anlik_hiz_derece_s = (HIZ_EMA_ALPHA * anlik_ornek_hizi +
+                                           (1 - HIZ_EMA_ALPHA) * anlik_hiz_derece_s)
+                son_hiz_olcum_zamani = simdi_hiz
+
             kalan = hedef_derece - abs(toplam_donus)
 
             if kalan <= TOLERANS:
+                # ---- AKTIF FREN DARBESI: gercekten hedefe ulasildigi anda,
+                # o anki hiza orantili KISA bir ters yonlu darbeyle momentumu
+                # sondur. Bu, "coast" ile duran robotun ataletle devam edip
+                # hedefi asmasini (overshoot) engelleyen ASIL mekanizma -
+                # tahminle degil, olculen gercek hizla orantili. ----
+                if anlik_hiz_derece_s > FREN_MIN_HIZ_ESIGI:
+                    fren_suresi = min(FREN_MAKS_SURESI, anlik_hiz_derece_s * FREN_KATSAYISI)
+                    ters_yon_fren = "sag" if yon == "sol" else "sol"
+                    print(f"  [DEBUG] Fren darbesi: kalan={kalan:.1f} derece, "
+                          f"anlik_hiz={anlik_hiz_derece_s:.0f} derece/s, "
+                          f"fren_suresi={fren_suresi*1000:.0f}ms ({ters_yon_fren} yonde)")
+                    donus_yonu_ayarla(ters_yon_fren)
+                    pwm_a.ChangeDutyCycle(FREN_DUTY)
+                    pwm_b.ChangeDutyCycle(FREN_DUTY)
+                    time.sleep(fren_suresi)
+                else:
+                    print(f"  [DEBUG] Hedefe ulasildi: kalan={kalan:.1f} derece, "
+                          f"anlik_hiz={anlik_hiz_derece_s:.0f} derece/s (fren esiginin "
+                          f"altinda, darbe uygulanmadi)")
                 break
 
             # HIZ ANOMALISI kontrolu: "tek teker donuyor" gibi durumlarda
@@ -736,12 +884,33 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         # guvenilir bir sonuc elde ediyoruz.
         SETTLE_SURESI = 1.5
         SETTLE_ORNEK_ARALIGI = 0.1
-        MAKS_GECERLI_SETTLE_ADIMI = 15.0  # derece - motor kapaliyken bundan buyugu supheli sayilir
+        # GUNCELLEME (overshoot azaltma): 15.0 -> 8.0. Motor tamamen
+        # durduktan sonra GERCEK fiziksel donus cok kucuk olmali (sadece
+        # ataletin sonlanmasi kadar) - 15 derecelik bir esik, magnetometer
+        # gurultusunden kaynaklanan HAYALI sicramalarin "dogrulanmis" sayilip
+        # toplam_donus'a yanlislikla eklenmesine (ve sonrasinda ince_duzeltme_
+        # yap()'in bu sisirilmis degere gore yanlis yon/miktar duzeltmesi
+        # yapmasina) izin veriyordu. 8 derece, gercek atalet donusunu hala
+        # kabul edecek kadar genis ama gurultuyu daha iyi eliyor.
+        MAKS_GECERLI_SETTLE_ADIMI = 8.0  # derece - motor kapaliyken bundan buyugu supheli sayilir
 
-        print(f"Motor durdu, magnetometer'in sakinlesmesi icin {SETTLE_SURESI}s bekleniyor "
-              f"(supheli sicramalar filtreleniyor)...")
+        # GUNCELLEME (erken cikis): eskiden settle dongusu HER ZAMAN tam
+        # SETTLE_SURESI (1.5s) kadar surerdi - bu sure boyunca gelen HER
+        # gurultulu ornek toplam_donus'a (kucuk de olsa) katki yapma riski
+        # tasiyordu. Heading belirli bir sure (SETTLE_SESSIZLIK_ESIGI)
+        # hic degismezse (gercekten sakinlesmisse), tam 1.5s'yi beklemeden
+        # ERKEN CIKILIYOR - hem daha az gurultu birikme riski hem de daha
+        # hizli bir donus dongusu.
+        SETTLE_SESSIZLIK_ESIGI = 0.5  # saniye - bu sure hic degisim olmazsa erken cik
+        SETTLE_DEGISIM_EPSILON = 0.3  # derece - bunun altindaki farklar "degismedi" sayilir
+
+        print(f"Motor durdu, magnetometer'in sakinlesmesi icin en fazla {SETTLE_SURESI}s "
+              f"bekleniyor (supheli sicramalar filtreleniyor, {SETTLE_SESSIZLIK_ESIGI}s "
+              f"sessizlik olursa erken cikilir)...")
 
         bekleyen_deger_settle = None
+        son_settle_degisim_zamani = time.time()
+        son_settle_bilinen_deger = onceki_heading
 
         settle_baslangic = time.time()
         while time.time() - settle_baslangic < SETTLE_SURESI:
@@ -754,6 +923,17 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
             )
             if delta is not None:
                 toplam_donus += delta
+
+            # Erken cikis kontrolu: heading gercekten sakinlesti mi?
+            if simdiki_heading is not None:
+                if (son_settle_bilinen_deger is None or
+                        abs(aci_farki(son_settle_bilinen_deger, simdiki_heading)) > SETTLE_DEGISIM_EPSILON):
+                    son_settle_bilinen_deger = simdiki_heading
+                    son_settle_degisim_zamani = time.time()
+                elif time.time() - son_settle_degisim_zamani > SETTLE_SESSIZLIK_ESIGI:
+                    print(f"  [DEBUG] Settle erken bitti - heading {SETTLE_SESSIZLIK_ESIGI}s'dir "
+                          f"sabit ({simdiki_heading}).")
+                    break
 
             time.sleep(SETTLE_ORNEK_ARALIGI)
 
