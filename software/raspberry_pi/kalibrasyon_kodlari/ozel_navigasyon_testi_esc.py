@@ -58,7 +58,7 @@ from donus_kapali_dongu import (
     motorlari_ayarla, motorlari_durdur, aci_farki, SERIAL_PORT
 )
 from test_surus import (
-    guvenli_donus, ileri_yon_ayarla, ileri_git_sabit_mesafe,
+    guvenli_donus, ileri_yon_ayarla, geri_yon_ayarla, ileri_git_sabit_mesafe,
     SOL_HIZ, SAG_HIZ, DUZELTME_KAZANCI, DUZELTME_KAZANCI_I, MAKS_DUZELTME,
     MAKS_INTEGRAL,
 )
@@ -112,24 +112,35 @@ def bolge_bildir(bridge, olay_fn):
 
 
 def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None,
-                          hiz_carpani=1.0):
+                          hiz_carpani=1.0, yon="ileri"):
     """
-    Belirtilen sure boyunca duz ileri gider (mesafe sensoru KULLANILMAZ,
-    sadece zaman). BNO055 heading feedback ile saga/sola kaymayi anlik
-    olarak duzeltir.
+    Belirtilen sure boyunca duz ILERI ya da GERI gider (mesafe sensoru
+    KULLANILMAZ, sadece zaman). BNO055 heading feedback ile saga/sola
+    kaymayi anlik olarak duzeltir.
 
-    hiz_carpani: (YENI) taban hizi (SOL_HIZ/SAG_HIZ) bu katsayiyla carpar -
+    yon: (YENI) "ileri" (varsayilan) ya da "geri". "geri" verilirse
+    geri_yon_ayarla() ile motor pinleri TERS cevrilip robot GERIYE gider.
+    NOT: Heading-duzeltme mantigi (hangi tekerin hizlandirilip
+    yavaslatilacagi) ILERI yon icin kalibre edilmis - GERI giderken de
+    ayni mantik uygulaniyor. Kisa (orn. <0.5s) geri hareketlerde bu
+    yeterince dogru calisir; cok uzun geri hareketler icin ince ayar
+    gerekebilir.
+
+    hiz_carpani: taban hizi (SOL_HIZ/SAG_HIZ) bu katsayiyla carpar -
     SADECE bu cagriya ozel, global SOL_HIZ/SAG_HIZ SABIT kalir. 1.0 =
     degisiklik yok (varsayilan).
 
-    dur_bayragi: (YENI) set edilirse hareket en kisa surede durdurulup
+    dur_bayragi: set edilirse hareket en kisa surede durdurulup
     fonksiyondan cikilir.
     """
     if _durdurma_istendi_mi(dur_bayragi):
-        print("DURDURMA sinyali - sabit sureli ileri gitme baslamadan iptal edildi.")
+        print("DURDURMA sinyali - sabit sureli hareket baslamadan iptal edildi.")
         return
 
-    ileri_yon_ayarla()
+    if yon == "geri":
+        geri_yon_ayarla()
+    else:
+        ileri_yon_ayarla()
 
     hedef_heading = bridge.get_heading()
     temel_sol, temel_sag = SOL_HIZ * hiz_carpani, SAG_HIZ * hiz_carpani
@@ -142,7 +153,7 @@ def ileri_git_sabit_sure(bridge, pwm_a, pwm_b, sure_saniye, dur_bayragi=None,
 
     while time.time() - baslangic < sure_saniye:
         if _durdurma_istendi_mi(dur_bayragi):
-            print("DURDURMA sinyali - sabit sureli ileri gitme iptal ediliyor.")
+            print("DURDURMA sinyali - sabit sureli hareket iptal ediliyor.")
             break
 
         simdiki_heading = bridge.get_heading()

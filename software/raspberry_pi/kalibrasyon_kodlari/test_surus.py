@@ -108,6 +108,17 @@ def ileri_yon_ayarla():
     GPIO.output(IN3, GPIO.LOW);  GPIO.output(IN4, GPIO.HIGH)
 
 
+def geri_yon_ayarla():
+    """
+    YENI: Duz GERIYE gitme icin motor pinleri - ileri_yon_ayarla()'nin
+    TAM TERSI (IN pinleri ters cevrilmis). GECISLER listesinde "sure"
+    hareket tipine "yon": "geri" eklenince (bkz. ileri_git_sabit_sure'daki
+    yon parametresi) bu fonksiyon kullanilir.
+    """
+    GPIO.output(IN1, GPIO.LOW);  GPIO.output(IN2, GPIO.HIGH)
+    GPIO.output(IN3, GPIO.HIGH); GPIO.output(IN4, GPIO.LOW)
+
+
 def ileri_git_sabit_mesafe(pwm_a, pwm_b, mesafe_cm, bridge=None, dur_bayragi=None):
     """
     Sabit mesafe ileri gider. bridge verilirse, BNO055 heading feedback ile
