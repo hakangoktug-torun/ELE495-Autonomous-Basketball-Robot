@@ -4,10 +4,10 @@ test_surus.py'nin kare rotasindan FARKLI, ozel bir hareket dizisi dener.
 Robot 4 farkli pozisyonda durur (ilk 2'si 3 puanlik bolgede, son 2'si 2
 puanlik bolgede) ve her pozisyonda senden bir atis acisi/yonu ister.
 
-Bu dosya IKI SEKILDE kullanilabilir (firlaticisiz_atis_simulasyon_test.py ile
+Bu dosya IKI SEKILDE kullanilabilir (Flask GUI ile
 ayni mantik):
   1) Komut satirindan direkt calistirilabilir (input() ile sorar):
-         python3 ozel_navigasyon_testi.py
+         python3 ozel_test_surus_esc.py
   2) Baska bir kod (Flask GUI) tarafindan import edilip
      calistir_ozel_rota() cagrilabilir - input() yerine caller'in verdigi
      callback fonksiyonlari (aci_getir_fn, olay_fn) kullanilir.
@@ -58,7 +58,7 @@ from test_surus import (
     SOL_HIZ, SAG_HIZ, DUZELTME_KAZANCI, DUZELTME_KAZANCI_I, MAKS_DUZELTME,
     MAKS_INTEGRAL,
 )
-from atici_esc_kontrol_pigpio import EscKontrol
+from atici_esc_kontrol_pigpio_2 import EscKontrol
 
 MIN_ACIKLIK_CM = 10.0     # onde bu kadardan fazla aciklik varsa ilerle
 ILERLEME_MESAFESI_CM = 10.0  # ne kadar ilerlenecek

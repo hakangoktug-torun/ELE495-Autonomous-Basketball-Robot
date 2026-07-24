@@ -30,8 +30,14 @@ import sys
 import time
 import signal
 import threading
+import importlib
 
 from flask import Flask, jsonify, render_template, request
+
+try:
+    from .api_helpers import skor_bildirimi_cevabi
+except ImportError:
+    from api_helpers import skor_bildirimi_cevabi
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _RASPI_DIR = os.path.normpath(os.path.join(_BASE_DIR, "..", "raspberry_pi"))
@@ -39,15 +45,34 @@ _KALIB_DIR = os.path.join(_RASPI_DIR, "kalibrasyon_kodlari")
 sys.path.insert(0, _RASPI_DIR)
 sys.path.insert(0, _KALIB_DIR)
 
-from robot_bridge import RobotBridge
-from donus_kapali_dongu import motorlari_ayarla, motorlari_durdur, SERIAL_PORT
 from skor_dinleyici import SkorDinleyici
 from esc_hiz_kontrolcusu import EscHizKontrolcusu
-import ozel_navigasyon_testi_esc_sweep_2 as atis_modulu
 
 app = Flask(__name__)
 
 MAKS_GECMIS_UZUNLUGU = 60
+
+
+def _donanim_modullerini_yukle():
+    try:
+        robot_bridge = importlib.import_module("robot_bridge")
+        donus_kapali_dongu = importlib.import_module("donus_kapali_dongu")
+        atis_modulu = importlib.import_module("ozel_navigasyon_testi_esc_sweep_2")
+    except ImportError as exc:
+        eksik = getattr(exc, "name", None) or str(exc)
+        raise RuntimeError(
+            "Donanim modulleri yuklenemedi. Raspberry Pi ortaminda "
+            "requirements.txt bagimliliklarini ve RPi.GPIO/pigpio/pyserial "
+            f"kurulumunu kontrol et. Eksik/hata: {eksik}"
+        ) from exc
+
+    return (
+        robot_bridge.RobotBridge,
+        donus_kapali_dongu.motorlari_ayarla,
+        donus_kapali_dongu.motorlari_durdur,
+        donus_kapali_dongu.SERIAL_PORT,
+        atis_modulu,
+    )
 
 
 class AtisTestiKontrolcusu:
@@ -56,9 +81,12 @@ class AtisTestiKontrolcusu:
         self.bridge = None
         self.pwm_a = None
         self.pwm_b = None
+        self._motorlari_durdur = None
+        self._atis_modulu = None
 
         self.baglanti_hazir = False
         self.baglanti_hata_mesaji = None
+        self.baslatiliyor = False
         self.calisiyor = False
         self.score = 0
         self.gecmis = []
@@ -126,7 +154,7 @@ class AtisTestiKontrolcusu:
 
     def _sure_takip_dongusu(self):
         """
-        Sürekli (0.5s aralikla) calisan bekci dongusu - test calisirken
+        Surekli (0.5s aralikla) calisan bekci dongusu - test calisirken
         gecen sureyi kontrol edip SURE_LIMIT_SN (5 dakika) dolunca
         otomatik Acil Durdur tetikler. Ayri bir daemon thread'de calisir,
         ana test thread'inden BAGIMSIZDIR.
@@ -155,42 +183,64 @@ class AtisTestiKontrolcusu:
         if self.baglanti_hazir:
             return True
 
-        self._gecmise_ekle("Arduino/BNO055 baglantisi kuruluyor...")
-        self.bridge = RobotBridge(port=SERIAL_PORT)
-        self.bridge.start()
-
-        for _ in range(50):
-            if not self.bridge.is_stale(max_age_sec=1.0):
-                break
-            time.sleep(0.1)
-
-        if self.bridge.is_stale(max_age_sec=1.0):
-            self.baglanti_hata_mesaji = "Sensor veri akisi yok - Arduino baglantisini kontrol et."
+        try:
+            (
+                RobotBridge,
+                motorlari_ayarla,
+                self._motorlari_durdur,
+                SERIAL_PORT,
+                self._atis_modulu,
+            ) = _donanim_modullerini_yukle()
+        except RuntimeError as e:
+            self.baglanti_hata_mesaji = str(e)
             self._gecmise_ekle(f"HATA: {self.baglanti_hata_mesaji}")
-            self.bridge.stop()
-            self.bridge = None
             return False
 
-        self.bridge.request_fast_mode()
-        time.sleep(0.1)
+        try:
+            self._gecmise_ekle("Arduino/BNO055 baglantisi kuruluyor...")
+            self.bridge = RobotBridge(port=SERIAL_PORT)
+            self.bridge.start()
 
-        self.pwm_a, self.pwm_b = motorlari_ayarla()
-        self.baglanti_hazir = True
-        self.baglanti_hata_mesaji = None
-        self._gecmise_ekle("Baglanti hazir.")
-        return True
+            for _ in range(50):
+                if not self.bridge.is_stale(max_age_sec=1.0):
+                    break
+                time.sleep(0.1)
+
+            if self.bridge.is_stale(max_age_sec=1.0):
+                self.baglanti_hata_mesaji = "Sensor veri akisi yok - Arduino baglantisini kontrol et."
+                self._gecmise_ekle(f"HATA: {self.baglanti_hata_mesaji}")
+                self.bridge.stop()
+                self.bridge = None
+                return False
+
+            self.bridge.request_fast_mode()
+            time.sleep(0.1)
+
+            self.pwm_a, self.pwm_b = motorlari_ayarla()
+            self.baglanti_hazir = True
+            self.baglanti_hata_mesaji = None
+            self._gecmise_ekle("Baglanti hazir.")
+            return True
+        except Exception as e:
+            self.baglanti_hata_mesaji = f"Donanim baglantisi kurulamadi: {e}"
+            self.baglanti_hazir = False
+            self._gecmise_ekle(f"HATA: {self.baglanti_hata_mesaji}")
+            if self.bridge is not None:
+                try:
+                    self.bridge.stop()
+                except Exception:
+                    pass
+                self.bridge = None
+            return False
 
     # ---------------- test dongusu ----------------
 
     def testi_baslat(self):
         with self._lock:
-            if self.calisiyor:
+            if self.calisiyor or self.baslatiliyor:
                 return False
-            self.calisiyor = True
-
-        self.dur_bayragi.clear()
-
-        with self._lock:
+            self.baslatiliyor = True
+            self.baglanti_hata_mesaji = None
             self.aktif_pozisyon = {
                 "asama": "baslatiliyor",
                 "pozisyon_no": None,
@@ -200,8 +250,25 @@ class AtisTestiKontrolcusu:
                 "puan": None,
             }
 
-        # YENI: 5 dakikalik sayaci baslat (sifirla).
+        self.dur_bayragi.clear()
+
+        try:
+            if not self.baglanti_hazir and not self.baglan():
+                with self._lock:
+                    self.baslatiliyor = False
+                    self.aktif_pozisyon["asama"] = "hata"
+                return False
+        except Exception as e:
+            with self._lock:
+                self.baglanti_hata_mesaji = f"Baglanti baslatilamadi: {e}"
+                self.baslatiliyor = False
+                self.aktif_pozisyon["asama"] = "hata"
+            self._gecmise_ekle(f"HATA: {self.baglanti_hata_mesaji}")
+            return False
+
         with self._lock:
+            self.calisiyor = True
+            self.baslatiliyor = False
             self.test_baslangic_zamani = time.time()
             self._sure_asimi_tetiklendi = False
 
@@ -215,7 +282,7 @@ class AtisTestiKontrolcusu:
                 return
 
             self._gecmise_ekle("Ozel navigasyon testi (interaktif ESC) basladi.")
-            atis_modulu.calistir_ozel_rota_sweep(
+            self._atis_modulu.calistir_ozel_rota_sweep(
                 self.bridge, self.pwm_a, self.pwm_b,
                 olay_fn=self._gecmise_ekle,
                 skor_dinleyici=self.skor_dinleyici,
@@ -227,21 +294,22 @@ class AtisTestiKontrolcusu:
             self._gecmise_ekle(f"HATA: Test sirasinda beklenmeyen bir sorun olustu: {e}")
         finally:
             if self.pwm_a is not None and self.pwm_b is not None:
-                motorlari_durdur(self.pwm_a, self.pwm_b)
+                self._motorlari_guvenli_durdur()
             with self._lock:
                 self.calisiyor = False
+                self.baslatiliyor = False
                 self.bekleyen_girdi = None
 
     def acil_durdur(self):
         if self.pwm_a is not None and self.pwm_b is not None:
-            motorlari_durdur(self.pwm_a, self.pwm_b)
+            self._motorlari_guvenli_durdur()
         self.dur_bayragi.set()
         self.skor_dinleyici.saymayi_durdur()
         self._gecmise_ekle("ACIL DURDUR tetiklendi - motorlar/ESC durduruluyor.")
 
     def close(self):
         if self.pwm_a is not None and self.pwm_b is not None:
-            motorlari_durdur(self.pwm_a, self.pwm_b)
+            self._motorlari_guvenli_durdur()
             try:
                 self.pwm_a.stop()
                 self.pwm_b.stop()
@@ -251,6 +319,10 @@ class AtisTestiKontrolcusu:
                 pass
         if self.bridge is not None:
             self.bridge.stop()
+
+    def _motorlari_guvenli_durdur(self):
+        if self._motorlari_durdur is not None:
+            self._motorlari_durdur(self.pwm_a, self.pwm_b)
 
     # ---------------- durum ----------------
 
@@ -264,6 +336,7 @@ class AtisTestiKontrolcusu:
             return {
                 "baglanti_hazir": self.baglanti_hazir,
                 "baglanti_hata_mesaji": self.baglanti_hata_mesaji,
+                "baslatiliyor": self.baslatiliyor,
                 "calisiyor": self.calisiyor,
                 "score": self.score,
                 "gecis_sayisi": self.skor_dinleyici.gecis_sayisi(),
@@ -301,7 +374,8 @@ def _sigint_yakala(sig, frame):
     raise KeyboardInterrupt()
 
 
-signal.signal(signal.SIGINT, _sigint_yakala)
+def _sigint_yakalayicisini_kur():
+    signal.signal(signal.SIGINT, _sigint_yakala)
 
 
 # ---------------------------------------------------------------------------
@@ -356,13 +430,12 @@ def esc_hiz_ayarla():
 def skor_route():
     """Arduino R4 WiFi'nin break-beam sensorlerinden gonderdigi bildirimi
     karsilar - bkz. app.py'deki ayni route."""
-    sensor_no = request.args.get("sensor")
-    kontrolcu.skor_dinleyici.gecis_bildir(sensor_no)
-    return "OK"
+    return skor_bildirimi_cevabi(kontrolcu, request.args.get("sensor"))
 
 
 if __name__ == "__main__":
     try:
+        _sigint_yakalayicisini_kur()
         app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
     finally:
         kontrolcu.close()

@@ -8,10 +8,10 @@ GUNCELLEME (acil durdur destegi): ileri_git_sabit_sure() artik opsiyonel
 bir dur_bayragi (threading.Event) parametresi aliyor - set edilirse hareket
 en kisa surede durdurulup fonksiyondan cikilir.
 
-Bu dosya IKI SEKILDE kullanilabilir (firlaticisiz_atis_simulasyon_test.py ile
+Bu dosya IKI SEKILDE kullanilabilir (Flask GUI ile
 ayni mantik):
   1) Komut satirindan direkt calistirilabilir (input() ile sorar):
-         python3 ozel_navigasyon_testi.py
+         python3 ozel_navigasyon_testi_esc.py
   2) Baska bir kod (Flask GUI) tarafindan import edilip
      calistir_ozel_rota() cagrilabilir - input() yerine caller'in verdigi
      callback fonksiyonlari (aci_getir_fn, olay_fn) kullanilir.

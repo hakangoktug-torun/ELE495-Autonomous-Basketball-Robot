@@ -66,15 +66,9 @@ Then open:
 http://localhost:5000
 ```
 
-## Running Tests
-
-```bash
-pytest
-```
-
 ## Implementation Notes
 
-GPIO access is intentionally abstracted behind Python classes. The default
-configuration runs in `dry_run` mode so the project can be developed and tested
-on non-Raspberry Pi machines before real motor drivers, sensors, and the shooter
-mechanism are connected.
+The current implementation is hardware-oriented. The Flask apps can open on a
+development computer for interface review, but motor, ESC, serial, and sensor
+flows are intended to run on Raspberry Pi with the Arduino sensor bridge
+connected.

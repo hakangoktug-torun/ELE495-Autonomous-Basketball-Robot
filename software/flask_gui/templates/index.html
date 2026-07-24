@@ -13,7 +13,7 @@
         <header class="topbar">
             <div class="brand">
                 <p class="eyebrow">ELE495 &middot; Grup 9</p>
-                <h1>Atis Simulasyonu Kontrol Paneli</h1>
+                <h1>Robot Kontrol Paneli</h1>
             </div>
             <div class="status-cluster">
                 <div class="connection" id="connection">baglaniyor&hellip;</div>
@@ -66,12 +66,6 @@
         <section class="dashboard-grid">
             <article class="panel control-panel">
                 <h2>Kontrol</h2>
-                <p class="hint">
-                    Test basladiginda robot sabit rotayi ve sweep atislarini
-                    otomatik yurutur. Break-beam sensorlerinden 2 basarili
-                    gecis geldiginde o pozisyon otomatik biter ve skor bolge
-                    rengine gore artar.
-                </p>
                 <button class="btn btn-auto btn-wide" id="baslat-btn">Testi Baslat</button>
                 <button class="btn btn-emergency btn-wide" id="emergency">Acil Durdur</button>
                 <p class="warn-text" id="baglanti-hata"></p>
@@ -99,12 +93,22 @@
 
     <script>
         async function postJson(url, body = {}) {
-            const response = await fetch(url, {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify(body)
-            });
-            renderStatus(await response.json());
+            try {
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(body)
+                });
+                const payload = await response.json();
+                if (!response.ok && payload.hata) {
+                    document.getElementById("baglanti-hata").textContent = payload.hata;
+                    return;
+                }
+                renderStatus(payload);
+            } catch (error) {
+                setConnection(false);
+                document.getElementById("baglanti-hata").textContent = "Sunucudan gecerli cevap alinamadi.";
+            }
         }
 
         async function refreshStatus() {
@@ -122,7 +126,7 @@
             document.getElementById("baglanti-durumu").textContent =
                 status.baglanti_hazir ? "hazir" : "bekleniyor";
             document.getElementById("test-durumu").textContent =
-                status.calisiyor ? "calisiyor" : "beklemede";
+                status.baslatiliyor ? "baslatiliyor" : (status.calisiyor ? "calisiyor" : "beklemede");
             document.getElementById("gecis-sayisi").textContent =
                 status.gecis_sayisi != null ? status.gecis_sayisi : 0;
 
@@ -281,6 +285,9 @@
             if (status.baglanti_hata_mesaji) {
                 badge.classList.add("mode-danger");
                 text.textContent = "HATA";
+            } else if (status.baslatiliyor) {
+                badge.classList.add("mode-waiting");
+                text.textContent = "BASLATILIYOR";
             } else if (status.esc && status.esc.ilk_deger_bekleniyor) {
                 badge.classList.add("mode-waiting");
                 text.textContent = "ESC HIZI BEKLENIYOR";

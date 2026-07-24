@@ -16,7 +16,7 @@ KURULUM (once bunlari calistir):
 otomatik baslamasi icin 'enable' kismini bir kez calistirman yeterli.)
 
 Kullanim:
-    python3 atici_esc_kontrol_pigpio.py
+    python3 atici_esc_kontrol_pigpio_2.py
 """
 
 import time
