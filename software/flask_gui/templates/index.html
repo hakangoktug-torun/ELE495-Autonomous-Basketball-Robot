@@ -71,6 +71,34 @@
                 <p class="warn-text" id="baglanti-hata"></p>
             </article>
 
+            <article class="panel court-panel">
+                <div class="panel-title-row">
+                    <h2>Saha Takibi</h2>
+                    <span class="court-scale">120 x 80 cm</span>
+                </div>
+                <div class="court" id="court" aria-label="Robot saha konumu">
+                    <div class="court-start-area" aria-hidden="true">BASLAMA ALANI</div>
+                    <div class="court-zone court-zone-red" aria-hidden="true"></div>
+                    <div class="court-zone court-zone-green" aria-hidden="true"></div>
+                    <div class="court-forbidden" aria-hidden="true">
+                        <span>YASAK BOLGE</span>
+                        <span class="court-panel-box">PANEL</span>
+                    </div>
+                    <div class="court-hoop" aria-hidden="true"></div>
+                    <div class="court-midline" aria-hidden="true"></div>
+                    <div class="court-label court-label-red">3 PUAN ZONE</div>
+                    <div class="court-label court-label-green">2 PUAN ZONE</div>
+                    <div class="robot-marker" id="robot-marker">
+                        <span class="robot-heading"></span>
+                    </div>
+                </div>
+                <div class="court-meta">
+                    <span id="saha-konum">Konum: -</span>
+                    <span id="saha-asama">Durum: beklemede</span>
+                    <span id="saha-heading">Aci: -</span>
+                </div>
+            </article>
+
             <article class="panel input-panel" id="esc-panel" hidden>
                 <h2>ESC Hizi</h2>
                 <p id="esc-bilgisi" class="hint"></p>
@@ -91,232 +119,6 @@
         </section>
     </main>
 
-    <script>
-        async function postJson(url, body = {}) {
-            try {
-                const response = await fetch(url, {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify(body)
-                });
-                const payload = await response.json();
-                if (!response.ok && payload.hata) {
-                    document.getElementById("baglanti-hata").textContent = payload.hata;
-                    return;
-                }
-                renderStatus(payload);
-            } catch (error) {
-                setConnection(false);
-                document.getElementById("baglanti-hata").textContent = "Sunucudan gecerli cevap alinamadi.";
-            }
-        }
-
-        async function refreshStatus() {
-            try {
-                const response = await fetch("/api/durum");
-                renderStatus(await response.json());
-                setConnection(true);
-            } catch (error) {
-                setConnection(false);
-            }
-        }
-
-        function renderStatus(status) {
-            document.getElementById("score").textContent = status.score;
-            document.getElementById("baglanti-durumu").textContent =
-                status.baglanti_hazir ? "hazir" : "bekleniyor";
-            document.getElementById("test-durumu").textContent =
-                status.baslatiliyor ? "baslatiliyor" : (status.calisiyor ? "calisiyor" : "beklemede");
-            document.getElementById("gecis-sayisi").textContent =
-                status.gecis_sayisi != null ? status.gecis_sayisi : 0;
-
-            updateSureGostergesi(status);
-
-            document.getElementById("baglanti-hata").textContent = status.baglanti_hata_mesaji || "";
-
-            updateModeBadge(status);
-            updateEscPanel(status.esc);
-            updatePozisyonPanel(status.aktif_pozisyon);
-
-            const history = document.getElementById("task-history");
-            history.innerHTML = "";
-            (status.gecmis || []).forEach((item) => {
-                const row = document.createElement("li");
-                const parts = item.split(" - ");
-                const time = document.createElement("span");
-                const message = document.createElement("span");
-                time.className = "history-time";
-                time.textContent = `[${parts[0]}]`;
-                message.textContent = parts.slice(1).join(" - ") || item;
-                row.append(time, message);
-                history.appendChild(row);
-            });
-        }
-
-        // YENI: Robotun su anki pozisyonunu/bolgesini genel loglardan AYRI
-        // olarak, ozel bir panelde gosterir. status.aktif_pozisyon backend'de
-        // durum_fn callback'i uzerinden guncelleniyor (bkz. app.py).
-        const ASAMA_METINLERI = {
-            beklemede: "Test baslamadi",
-            baslatiliyor: "Test baslatiliyor...",
-            atis: "Atis pozisyonunda - sweep yapiliyor",
-            hareket: "Sonraki pozisyona hareket ediliyor",
-            tamamlandi: "Test tamamlandi",
-            durduruldu: "Durduruldu",
-            hata: "Hata olustu",
-        };
-
-        // YENI: 5 dakikalik geri sayimi mm:ss formatinda gosterir. Backend
-        // (app.py / app_esc_interaktif.py) status.kalan_sure_sn'i her
-        // /api/durum cevabinda gonderiyor - burada sadece formatlayip
-        // gosteriyoruz, geri sayim mantigi tamamen backend'de (5 dakika
-        // dolunca backend otomatik Acil Durdur tetikliyor).
-        function formatSure(saniye) {
-            const toplamSaniye = Math.max(0, Math.round(saniye));
-            const dakika = Math.floor(toplamSaniye / 60);
-            const kalanSaniye = toplamSaniye % 60;
-            return `${dakika}:${String(kalanSaniye).padStart(2, "0")}`;
-        }
-
-        function updateSureGostergesi(status) {
-            const hucre = document.getElementById("sure-hucresi");
-            const metin = document.getElementById("kalan-sure");
-            const kalanSn = status.kalan_sure_sn != null ? status.kalan_sure_sn : 300;
-
-            metin.textContent = formatSure(kalanSn);
-
-            hucre.classList.remove("sure-uyari", "sure-kritik");
-            if (kalanSn <= 30) {
-                hucre.classList.add("sure-kritik");
-            } else if (kalanSn <= 60) {
-                hucre.classList.add("sure-uyari");
-            }
-        }
-
-        function updatePozisyonPanel(pozisyon) {
-            const panel = document.getElementById("pozisyon-panel");
-            const sayac = document.getElementById("pozisyon-sayac");
-            const etiket = document.getElementById("pozisyon-etiket");
-            const asamaEl = document.getElementById("pozisyon-asama");
-            const rozet = document.getElementById("bolge-rozeti");
-
-            if (!pozisyon) {
-                sayac.textContent = "-";
-                etiket.textContent = "Test baslamadi";
-                asamaEl.textContent = "";
-                rozet.hidden = true;
-                panel.className = "pozisyon-panel";
-                return;
-            }
-
-            sayac.textContent = pozisyon.pozisyon_no
-                ? `${pozisyon.pozisyon_no} / ${pozisyon.toplam_pozisyon || "?"}`
-                : "-";
-            etiket.textContent = pozisyon.etiket || "-";
-            asamaEl.textContent = ASAMA_METINLERI[pozisyon.asama] || pozisyon.asama || "";
-
-            // Bolge rozeti - kirmizi/yesil renk kodlamasi
-            if (pozisyon.bolge) {
-                rozet.hidden = false;
-                const puanMetni = pozisyon.puan != null ? ` (${pozisyon.puan} puan)` : "";
-                rozet.textContent = pozisyon.bolge.split(" (")[0] + puanMetni;
-                rozet.className = "bolge-rozeti";
-                if (pozisyon.bolge.startsWith("KIRMIZI")) {
-                    rozet.classList.add("bolge-kirmizi");
-                } else if (pozisyon.bolge.startsWith("YESIL")) {
-                    rozet.classList.add("bolge-yesil");
-                } else {
-                    rozet.classList.add("bolge-bilinmiyor");
-                }
-            } else {
-                rozet.hidden = true;
-            }
-
-            // Panel arka planini asamaya gore vurgula
-            panel.className = "pozisyon-panel";
-            if (pozisyon.asama === "atis") {
-                panel.classList.add("pozisyon-aktif");
-            } else if (pozisyon.asama === "hareket") {
-                panel.classList.add("pozisyon-hareket");
-            } else if (pozisyon.asama === "tamamlandi") {
-                panel.classList.add("pozisyon-tamamlandi");
-            } else if (pozisyon.asama === "durduruldu" || pozisyon.asama === "hata") {
-                panel.classList.add("pozisyon-durduruldu");
-            }
-        }
-
-        // status.esc SADECE app_esc_interaktif.py kullaniliyorsa gelir
-        // (interaktif ESC surumu). app.py ile calisiyorsan bu alan yok -
-        // panel gizli kalir, otomatik/sabit ESC hizi kullanilir.
-        function updateEscPanel(esc) {
-            const panel = document.getElementById("esc-panel");
-            const bilgi = document.getElementById("esc-bilgisi");
-            const guncelDeger = document.getElementById("esc-guncel-deger");
-
-            if (!esc) {
-                panel.hidden = true;
-                return;
-            }
-
-            panel.hidden = false;
-
-            if (esc.ilk_deger_bekleniyor) {
-                bilgi.textContent = `${esc.aktif_etiket || "Pozisyon"} - ESC hizi bekleniyor, lutfen deger girip gonder.`;
-                panel.classList.add("esc-bekleniyor");
-            } else {
-                bilgi.textContent = "Sweep calisiyor - istedigin an yeni bir deger gonderip hizi degistirebilirsin.";
-                panel.classList.remove("esc-bekleniyor");
-            }
-
-            guncelDeger.textContent = `Su anki ESC hizi: %${Number(esc.hiz).toFixed(1)}`;
-        }
-
-        function setConnection(isConnected) {
-            const connection = document.getElementById("connection");
-            connection.textContent = isConnected ? "bagli" : "baglanti yok";
-            connection.className = isConnected ? "connection connected" : "connection disconnected";
-        }
-
-        function updateModeBadge(status) {
-            const badge = document.getElementById("mode-badge");
-            const text = document.getElementById("mode-text");
-            badge.className = "mode-badge";
-
-            if (status.baglanti_hata_mesaji) {
-                badge.classList.add("mode-danger");
-                text.textContent = "HATA";
-            } else if (status.baslatiliyor) {
-                badge.classList.add("mode-waiting");
-                text.textContent = "BASLATILIYOR";
-            } else if (status.esc && status.esc.ilk_deger_bekleniyor) {
-                badge.classList.add("mode-waiting");
-                text.textContent = "ESC HIZI BEKLENIYOR";
-            } else if (status.calisiyor) {
-                badge.classList.add("mode-auto");
-                text.textContent = "CALISIYOR";
-            } else if (status.baglanti_hazir) {
-                badge.classList.add("mode-ready");
-                text.textContent = "HAZIR";
-            } else {
-                text.textContent = "HAZIR DEGIL";
-            }
-        }
-
-        document.getElementById("baslat-btn").addEventListener("click", () => {
-            postJson("/api/atis-testi/baslat");
-        });
-
-        document.getElementById("esc-gonder-btn").addEventListener("click", () => {
-            const hiz = Number(document.getElementById("esc-hiz-input").value);
-            postJson("/api/esc-hiz", {hiz});
-        });
-
-        document.getElementById("emergency").addEventListener("click", () => {
-            postJson("/api/emergency-stop");
-        });
-
-        refreshStatus();
-        setInterval(refreshStatus, 700);
-    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

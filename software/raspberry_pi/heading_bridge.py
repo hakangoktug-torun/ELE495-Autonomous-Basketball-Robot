@@ -130,12 +130,14 @@ class HeadingBridge:
         return (time.time() - son) > max_age_sec
 
     def request_heading_reset(self):
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"R")
+        self._komut_gonder(b"R")
 
     def request_calibration_status(self):
+        self._komut_gonder(b"C")
+
+    def _komut_gonder(self, komut):
         if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"C")
+            self._ser.write(komut)
 
 
 if __name__ == "__main__":

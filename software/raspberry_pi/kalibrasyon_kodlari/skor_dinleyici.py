@@ -15,7 +15,7 @@ gecen bir top, zeminden sekip potanin agzindan GERI CIKABILIYOR - bu da
 break-beam sensorlerini ikinci kez tetikleyip AYNI atisin YANLISLIKLA 2
 basarili gecis olarak sayilmasina (ve pozisyonun erken/hatali bitmesine)
 yol aciyordu. Bunu onlemek icin: bir gecis sayildiktan HEMEN sonra
-COOLDOWN_SURESI (1.5s) boyunca YENI tetiklemeler YOKSAYILIR - top sekip
+COOLDOWN_SURESI boyunca yeni tetiklemeler YOKSAYILIR - top sekip
 geri cikarsa bu ikinci tetikleme sayilmaz.
 
 GUNCELLEME (IKINCI ATIS ICIN SINIRLI BEKLEME - kural degisikligi): Onceki
@@ -25,7 +25,7 @@ BASARILI bir atis sonrasi o noktadan sadece 1 ATIS DAHA yapilabilir -
 BASARILI ya da BASARISIZ farketmeksizin. Break-beam sensorleri sadece
 BASARILI gecisleri algilayabildigi icin (bir ISKA'yi dogrudan olcecek bir
 sensorumuz yok), bu kural SUREYE dayanarak uygulaniyor: ilk basarili
-gecisten SONRA en fazla IKINCI_ATIS_MAKS_BEKLEME_SN (2.0s) beklenir, bu
+gecisten SONRA en fazla IKINCI_ATIS_MAKS_BEKLEME_SN kadar beklenir, bu
 sure icinde 2. bir basarili gecis gelirse (ya da gelmese bile sure dolunca)
 pozisyon OTOMATIK olarak bitirilir - boylece "sinirsiz deneme" yerine
 kurala uygun sekilde "en fazla 1 ek deneme" hakki taniniyor.
@@ -63,16 +63,11 @@ import time
 
 
 class SkorDinleyici:
-    # Basarili bir gecis sayildiktan sonra, YENI tetiklemelerin (muhtemel
+    # Basarili bir gecis sayildiktan sonra, yeni tetiklemelerin (muhtemel
     # top sekmesi) yoksayilacagi sure (saniye).
     COOLDOWN_SURESI = 1.0
 
-    # YENI: Bir pozisyonda ILK basarili gecis kaydedildikten sonra, bu
-    # pozisyonun en fazla ne kadar daha bekleyebilecegi (saniye). Bu
-    # sure dolunca - 2. bir basarili gecis gelse de gelmese de - pozisyon
-    # otomatik olarak bitirilir (bkz. pozisyon_bitmeli_mi()). Yarisma
-    # kuraline gore basarili bir atistan sonra sadece 1 ek deneme hakki
-    # oldugu icin, bu sure o tek ek denemeye yetecek kadar kisa tutuluyor.
+    # Ilk basarili gecisten sonra pozisyonun en fazla bekleyecegi sure.
     IKINCI_ATIS_MAKS_BEKLEME_SN = 5.0
 
     def __init__(self, puan_fn=None, olay_fn=None):
@@ -84,12 +79,8 @@ class SkorDinleyici:
         self._puan_fn = puan_fn
         self._olay_fn = olay_fn or (lambda mesaj: None)
 
-        # Cooldown durumu
-        self._cooldown_bitis = 0.0          # bu zamana kadar yeni tetiklemeler yoksayilir
-        self._cooldown_tuketilmedi = False  # yeni baslayan cooldown, henuz sweep tarafindan "alinmadi"
-
-        # YENI: ilk basarili gecisin zamani - IKINCI_ATIS_MAKS_BEKLEME_SN
-        # bu zamandan itibaren sayilir.
+        self._cooldown_bitis = 0.0
+        self._cooldown_tuketilmedi = False
         self._ilk_basari_zamani = None
 
     def saymaya_basla(self, puan=0):
@@ -131,52 +122,63 @@ class SkorDinleyici:
             if not self._sayma_aktif:
                 return False
 
-            simdi = time.time()
-            if simdi < self._cooldown_bitis:
-                kalan = self._cooldown_bitis - simdi
-                cooldown_aktifti = True
+            cooldown_kalan = self._cooldown_kalan_suresi()
+            if cooldown_kalan > 0:
+                cooldown_aktif = True
             else:
-                cooldown_aktifti = False
+                cooldown_aktif = False
+                sayac, puan = self._gecis_kaydet(time.time())
 
-            if cooldown_aktifti:
-                sensor_str = sensor_no
-                kalan_str = f"{kalan:.2f}"
-            else:
-                self._gecis_sayaci += 1
-                sayac = self._gecis_sayaci
-                puan = self._aktif_puan
-                self._son_gecis_zamani = simdi
-                self._cooldown_bitis = simdi + self.COOLDOWN_SURESI
-                self._cooldown_tuketilmedi = True
-                if self._ilk_basari_zamani is None:
-                    # YENI: bu pozisyondaki ILK basarili gecis - ikinci
-                    # (son) deneme icin en fazla IKINCI_ATIS_MAKS_BEKLEME_SN
-                    # kadar bir sayac baslatiliyor.
-                    self._ilk_basari_zamani = simdi
-
-        if cooldown_aktifti:
-            self._olay_fn(f"(Cooldown aktif, {kalan_str}s kaldi - sensor {sensor_str} "
-                          f"tetiklemesi sayilmadi, muhtemelen topun sekmesi)")
+        if cooldown_aktif:
+            self._cooldown_mesaji_yaz(sensor_no, cooldown_kalan)
             return False
 
-        if sayac == 1:
-            self._olay_fn(f"TOP CEMBERDEN GECTI! (sensor {sensor_no}) - "
-                          f"+{puan} puan (bu pozisyonda {sayac}. basarili gecis) - "
-                          f"{self.COOLDOWN_SURESI}s cooldown basladi. Kural geregi "
-                          f"bu pozisyondan en fazla {self.IKINCI_ATIS_MAKS_BEKLEME_SN}s "
-                          f"daha (1 ek deneme icin) beklenecek.")
-        else:
-            self._olay_fn(f"TOP CEMBERDEN GECTI! (sensor {sensor_no}) - "
-                          f"+{puan} puan (bu pozisyonda {sayac}. basarili gecis) - "
-                          f"{self.COOLDOWN_SURESI}s cooldown basladi.")
+        self._gecis_mesaji_yaz(sensor_no, sayac, puan)
         if self._puan_fn is not None and puan:
             self._puan_fn(puan)
         return True
 
+    def _cooldown_kalan_suresi(self):
+        return max(0.0, self._cooldown_bitis - time.time())
+
+    def _cooldown_mesaji_yaz(self, sensor_no, kalan):
+        self._olay_fn(
+            f"(Cooldown aktif, {kalan:.2f}s kaldi - sensor {sensor_no} "
+            "tetiklemesi sayilmadi, muhtemelen topun sekmesi)"
+        )
+
+    def _gecis_kaydet(self, zaman):
+        self._gecis_sayaci += 1
+        self._son_gecis_zamani = zaman
+        self._cooldown_bitis = zaman + self.COOLDOWN_SURESI
+        self._cooldown_tuketilmedi = True
+
+        if self._ilk_basari_zamani is None:
+            self._ilk_basari_zamani = zaman
+
+        return self._gecis_sayaci, self._aktif_puan
+
+    def _gecis_mesaji_yaz(self, sensor_no, sayac, puan):
+        if sayac == 1:
+            self._olay_fn(
+                f"TOP CEMBERDEN GECTI! (sensor {sensor_no}) - "
+                f"+{puan} puan (bu pozisyonda {sayac}. basarili gecis) - "
+                f"{self.COOLDOWN_SURESI}s cooldown basladi. Kural geregi "
+                f"bu pozisyondan en fazla {self.IKINCI_ATIS_MAKS_BEKLEME_SN}s "
+                "daha (1 ek deneme icin) beklenecek."
+            )
+            return
+
+        self._olay_fn(
+            f"TOP CEMBERDEN GECTI! (sensor {sensor_no}) - "
+            f"+{puan} puan (bu pozisyonda {sayac}. basarili gecis) - "
+            f"{self.COOLDOWN_SURESI}s cooldown basladi."
+        )
+
     def cooldown_suresini_tuket(self):
         """
         Sweep bekleme dongusu (girdi_bekle) tarafindan HER kontrol turunde
-        cagrilmasi beklenir. Eger bir onceki gecis_bildir() cagrisi YENI
+        cagrilmasi beklenir. Eger bir onceki gecis_bildir() cagrisi yeni
         bir cooldown baslattiysa (ve bu henuz "tuketilmediyse"), o
         cooldown suresini (COOLDOWN_SURESI) DONER ve bayragi sifirlar -
         cagiran kod, sweep bekleme suresinin BITIS ZAMANINI bu kadar
@@ -201,8 +203,8 @@ class SkorDinleyici:
     def iki_gecis_oldu_mu(self):
         """
         ESKI davranis (geriye donuk uyumluluk icin korunuyor) - SADECE
-        2 basarili gecis olunca True doner, ilk basaridan sonraki 2s
-        siniri BURADA UYGULANMAZ. Yeni kodda bunun yerine
+        2 basarili gecis olunca True doner, ilk basaridan sonraki
+        sure siniri BURADA UYGULANMAZ. Yeni kodda bunun yerine
         pozisyon_bitmeli_mi() kullanilmali.
         """
         with self._lock:
@@ -210,12 +212,12 @@ class SkorDinleyici:
 
     def pozisyon_bitmeli_mi(self):
         """
-        YENI: Pozisyonun sweep'inin bitirilmesi gerekip gerekmedigini
+        Pozisyonun sweep'inin bitirilmesi gerekip gerekmedigini
         soyler. Iki durumda True doner:
           1) 2 basarili gecis olduysa (eskisi gibi, 2. gecis de basariliysa
              ANINDA biter).
           2) EN AZ 1 basarili gecis olduysa VE ilk basaridan bu yana
-             IKINCI_ATIS_MAKS_BEKLEME_SN (2.0s) gectiyse - 2. deneme
+             IKINCI_ATIS_MAKS_BEKLEME_SN gectiyse - 2. deneme
              BASARISIZ olsa bile (ya da hic denenmese bile) kural geregi
              pozisyon biter.
 

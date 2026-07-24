@@ -25,6 +25,19 @@ import threading
 import time
 
 
+SENSOR_CSV_ALANLARI = (
+    "ir1",
+    "ir2",
+    "distance",
+    "heading",
+    "r",
+    "g",
+    "b",
+    "c",
+    "vcc_mv",
+)
+
+
 class RobotBridge:
     def __init__(self, port="/dev/ttyUSB0", baud=115200, timeout=1.0):
         self.port = port
@@ -105,24 +118,19 @@ class RobotBridge:
     def _parse_csv(self, satir):
         # Beklenen format: IR1,IR2,Distance,Heading,R,G,B,C,VccMv
         parcalar = satir.split(",")
-        if len(parcalar) != 9:
+        if len(parcalar) != len(SENSOR_CSV_ALANLARI):
             return  # bozuk/eksik satir, atla
 
         try:
-            ir1, ir2, distance, heading, r, g, b, c, vcc_mv = (float(p) for p in parcalar)
+            sensor_degerleri = {
+                alan: float(deger)
+                for alan, deger in zip(SENSOR_CSV_ALANLARI, parcalar)
+            }
         except ValueError:
             return
 
         with self._lock:
-            self._state["ir1"] = ir1
-            self._state["ir2"] = ir2
-            self._state["distance"] = distance
-            self._state["heading"] = heading
-            self._state["r"] = r
-            self._state["g"] = g
-            self._state["b"] = b
-            self._state["c"] = c
-            self._state["vcc_mv"] = vcc_mv
+            self._state.update(sensor_degerleri)
             self._state["last_update"] = time.time()
             self._state["connected"] = True
 
@@ -192,12 +200,10 @@ class RobotBridge:
         return (time.time() - son) > max_age_sec
 
     def request_heading_reset(self):
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"R")
+        self._komut_gonder(b"R")
 
     def request_calibration_status(self):
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"C")
+        self._komut_gonder(b"C")
 
     def _handle_saved_calibration_line(self, satir):
         # Format: SAVEDCAL,sys,gyro,accel,mag,eeprom_yuklendi
@@ -233,33 +239,32 @@ class RobotBridge:
     def request_saved_calibration_info(self):
         """Arduino'dan, EEPROM'a kaydedilmis kalibrasyonun kayit anindaki
         kalite seviyelerini (sys/gyro/accel/mag) ister."""
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"G")
+        self._komut_gonder(b"G")
 
     def request_fast_mode(self):
         """Arduino'nun genel dongu bekleme araligini kisaltir (~50ms -> ~10ms),
         heading guncelleme hizini artirir. NOT: renk sensoruyle artik ilgisi
         yok - renk okumasi artik bloklamiyor (dogrudan register okumasi),
         bu komuttan bagimsiz olarak her zaman calisir."""
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"F")
+        self._komut_gonder(b"F")
 
     def request_normal_mode(self):
         """Dongu bekleme araligini normale (~50ms) dondurur."""
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"N")
+        self._komut_gonder(b"N")
 
     def request_save_calibration(self):
         """Arduino'ya mevcut BNO055 kalibrasyonunu EEPROM'a kalici olarak
         kaydetmesini soyler. Sadece kalibrasyon iyiyken (orn. sys=3) cagir."""
-        if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"S")
+        self._komut_gonder(b"S")
 
     def request_delete_calibration(self):
         """Arduino'ya kayitli kalibrasyonu silmesini soyler. Bir sonraki
         acilista Arduino sifirdan kalibrasyon isteyecektir."""
+        self._komut_gonder(b"D")
+
+    def _komut_gonder(self, komut):
         if self._ser is not None and self._ser.is_open:
-            self._ser.write(b"D")
+            self._ser.write(komut)
 
 
 if __name__ == "__main__":
