@@ -29,7 +29,7 @@
                 <span class="scoreboard-label">TOPLAM PUAN</span>
                 <strong id="score">0</strong>
             </div>
-            <div class="scoreboard-strip">
+            <div class="scoreboard-strip dort-sutun">
                 <div class="strip-cell">
                     <span>BAGLANTI</span>
                     <strong id="baglanti-durumu">-</strong>
@@ -38,6 +38,28 @@
                     <span>TEST</span>
                     <strong id="test-durumu">beklemede</strong>
                 </div>
+                <div class="strip-cell">
+                    <span>BASARILI GECIS</span>
+                    <strong id="gecis-sayisi">0</strong>
+                </div>
+                <div class="strip-cell" id="sure-hucresi">
+                    <span>KALAN SURE</span>
+                    <strong id="kalan-sure">5:00</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="pozisyon-panel" id="pozisyon-panel" aria-label="Aktif pozisyon durumu">
+            <div class="pozisyon-sayac">
+                <span class="pozisyon-sayac-label">POZISYON</span>
+                <strong id="pozisyon-sayac">-</strong>
+            </div>
+            <div class="pozisyon-detay">
+                <div class="pozisyon-etiket-satir">
+                    <span id="pozisyon-etiket">Test baslamadi</span>
+                    <span class="bolge-rozeti" id="bolge-rozeti" hidden></span>
+                </div>
+                <p class="pozisyon-asama" id="pozisyon-asama"></p>
             </div>
         </section>
 
@@ -45,32 +67,27 @@
             <article class="panel control-panel">
                 <h2>Kontrol</h2>
                 <p class="hint">
-                    Test, onundeki cisme yaklasip renk bolgesini okuyacak, her
-                    kenarda senden atis acisini isteyecek. Atici henuz monte
-                    edilmedigi icin atis bir bekleme suresiyle simule edilir.
+                    Test basladiginda robot sabit rotayi ve sweep atislarini
+                    otomatik yurutur. Break-beam sensorlerinden 2 basarili
+                    gecis geldiginde o pozisyon otomatik biter ve skor bolge
+                    rengine gore artar.
                 </p>
                 <button class="btn btn-auto btn-wide" id="baslat-btn">Testi Baslat</button>
                 <button class="btn btn-emergency btn-wide" id="emergency">Acil Durdur</button>
                 <p class="warn-text" id="baglanti-hata"></p>
             </article>
 
-            <article class="panel input-panel" id="input-panel" hidden>
-                <h2>Atis Acisi Bekleniyor</h2>
-                <p id="input-bolge-bilgisi" class="hint"></p>
+            <article class="panel input-panel" id="esc-panel" hidden>
+                <h2>ESC Hizi</h2>
+                <p id="esc-bilgisi" class="hint"></p>
                 <div class="input-row">
                     <label>
-                        Yon
-                        <select id="aci-yon">
-                            <option value="sol">Sol</option>
-                            <option value="sag">Sag</option>
-                        </select>
-                    </label>
-                    <label>
-                        Derece
-                        <input type="number" id="aci-derece" min="1" max="180" step="1" value="30">
+                        Guncel Hiz (%)
+                        <input type="number" id="esc-hiz-input" min="0" max="100" step="0.1" value="12.4">
                     </label>
                 </div>
-                <button class="btn btn-score btn-wide" id="aci-gonder-btn">Aciyi Gonder</button>
+                <button class="btn btn-score btn-wide" id="esc-gonder-btn">ESC Hizini Gonder</button>
+                <p class="hint" id="esc-guncel-deger"></p>
             </article>
 
             <article class="panel history-panel">
@@ -81,8 +98,6 @@
     </main>
 
     <script>
-        let girdiPaneliAcik = false;
-
         async function postJson(url, body = {}) {
             const response = await fetch(url, {
                 method: "POST",
@@ -108,15 +123,20 @@
                 status.baglanti_hazir ? "hazir" : "bekleniyor";
             document.getElementById("test-durumu").textContent =
                 status.calisiyor ? "calisiyor" : "beklemede";
+            document.getElementById("gecis-sayisi").textContent =
+                status.gecis_sayisi != null ? status.gecis_sayisi : 0;
+
+            updateSureGostergesi(status);
 
             document.getElementById("baglanti-hata").textContent = status.baglanti_hata_mesaji || "";
 
             updateModeBadge(status);
-            updateInputPanel(status.bekleyen_girdi);
+            updateEscPanel(status.esc);
+            updatePozisyonPanel(status.aktif_pozisyon);
 
             const history = document.getElementById("task-history");
             history.innerHTML = "";
-            status.gecmis.forEach((item) => {
+            (status.gecmis || []).forEach((item) => {
                 const row = document.createElement("li");
                 const parts = item.split(" - ");
                 const time = document.createElement("span");
@@ -129,19 +149,122 @@
             });
         }
 
-        function updateInputPanel(bekleyenGirdi) {
-            const panel = document.getElementById("input-panel");
-            const bilgi = document.getElementById("input-bolge-bilgisi");
+        // YENI: Robotun su anki pozisyonunu/bolgesini genel loglardan AYRI
+        // olarak, ozel bir panelde gosterir. status.aktif_pozisyon backend'de
+        // durum_fn callback'i uzerinden guncelleniyor (bkz. app.py).
+        const ASAMA_METINLERI = {
+            beklemede: "Test baslamadi",
+            baslatiliyor: "Test baslatiliyor...",
+            atis: "Atis pozisyonunda - sweep yapiliyor",
+            hareket: "Sonraki pozisyona hareket ediliyor",
+            tamamlandi: "Test tamamlandi",
+            durduruldu: "Durduruldu",
+            hata: "Hata olustu",
+        };
 
-            if (bekleyenGirdi) {
-                panel.hidden = false;
-                bilgi.textContent =
-                    `${bekleyenGirdi.kenar_no}. kenar - Bolge: ${bekleyenGirdi.bolge} (${bekleyenGirdi.puan} puan)`;
-                girdiPaneliAcik = true;
-            } else if (girdiPaneliAcik) {
-                panel.hidden = true;
-                girdiPaneliAcik = false;
+        // YENI: 5 dakikalik geri sayimi mm:ss formatinda gosterir. Backend
+        // (app.py / app_esc_interaktif.py) status.kalan_sure_sn'i her
+        // /api/durum cevabinda gonderiyor - burada sadece formatlayip
+        // gosteriyoruz, geri sayim mantigi tamamen backend'de (5 dakika
+        // dolunca backend otomatik Acil Durdur tetikliyor).
+        function formatSure(saniye) {
+            const toplamSaniye = Math.max(0, Math.round(saniye));
+            const dakika = Math.floor(toplamSaniye / 60);
+            const kalanSaniye = toplamSaniye % 60;
+            return `${dakika}:${String(kalanSaniye).padStart(2, "0")}`;
+        }
+
+        function updateSureGostergesi(status) {
+            const hucre = document.getElementById("sure-hucresi");
+            const metin = document.getElementById("kalan-sure");
+            const kalanSn = status.kalan_sure_sn != null ? status.kalan_sure_sn : 300;
+
+            metin.textContent = formatSure(kalanSn);
+
+            hucre.classList.remove("sure-uyari", "sure-kritik");
+            if (kalanSn <= 30) {
+                hucre.classList.add("sure-kritik");
+            } else if (kalanSn <= 60) {
+                hucre.classList.add("sure-uyari");
             }
+        }
+
+        function updatePozisyonPanel(pozisyon) {
+            const panel = document.getElementById("pozisyon-panel");
+            const sayac = document.getElementById("pozisyon-sayac");
+            const etiket = document.getElementById("pozisyon-etiket");
+            const asamaEl = document.getElementById("pozisyon-asama");
+            const rozet = document.getElementById("bolge-rozeti");
+
+            if (!pozisyon) {
+                sayac.textContent = "-";
+                etiket.textContent = "Test baslamadi";
+                asamaEl.textContent = "";
+                rozet.hidden = true;
+                panel.className = "pozisyon-panel";
+                return;
+            }
+
+            sayac.textContent = pozisyon.pozisyon_no
+                ? `${pozisyon.pozisyon_no} / ${pozisyon.toplam_pozisyon || "?"}`
+                : "-";
+            etiket.textContent = pozisyon.etiket || "-";
+            asamaEl.textContent = ASAMA_METINLERI[pozisyon.asama] || pozisyon.asama || "";
+
+            // Bolge rozeti - kirmizi/yesil renk kodlamasi
+            if (pozisyon.bolge) {
+                rozet.hidden = false;
+                const puanMetni = pozisyon.puan != null ? ` (${pozisyon.puan} puan)` : "";
+                rozet.textContent = pozisyon.bolge.split(" (")[0] + puanMetni;
+                rozet.className = "bolge-rozeti";
+                if (pozisyon.bolge.startsWith("KIRMIZI")) {
+                    rozet.classList.add("bolge-kirmizi");
+                } else if (pozisyon.bolge.startsWith("YESIL")) {
+                    rozet.classList.add("bolge-yesil");
+                } else {
+                    rozet.classList.add("bolge-bilinmiyor");
+                }
+            } else {
+                rozet.hidden = true;
+            }
+
+            // Panel arka planini asamaya gore vurgula
+            panel.className = "pozisyon-panel";
+            if (pozisyon.asama === "atis") {
+                panel.classList.add("pozisyon-aktif");
+            } else if (pozisyon.asama === "hareket") {
+                panel.classList.add("pozisyon-hareket");
+            } else if (pozisyon.asama === "tamamlandi") {
+                panel.classList.add("pozisyon-tamamlandi");
+            } else if (pozisyon.asama === "durduruldu" || pozisyon.asama === "hata") {
+                panel.classList.add("pozisyon-durduruldu");
+            }
+        }
+
+        // status.esc SADECE app_esc_interaktif.py kullaniliyorsa gelir
+        // (interaktif ESC surumu). app.py ile calisiyorsan bu alan yok -
+        // panel gizli kalir, otomatik/sabit ESC hizi kullanilir.
+        function updateEscPanel(esc) {
+            const panel = document.getElementById("esc-panel");
+            const bilgi = document.getElementById("esc-bilgisi");
+            const guncelDeger = document.getElementById("esc-guncel-deger");
+
+            if (!esc) {
+                panel.hidden = true;
+                return;
+            }
+
+            panel.hidden = false;
+
+            if (esc.ilk_deger_bekleniyor) {
+                bilgi.textContent = `${esc.aktif_etiket || "Pozisyon"} - ESC hizi bekleniyor, lutfen deger girip gonder.`;
+                panel.classList.add("esc-bekleniyor");
+            } else {
+                bilgi.textContent = "Sweep calisiyor - istedigin an yeni bir deger gonderip hizi degistirebilirsin.";
+                panel.classList.remove("esc-bekleniyor");
+            }
+
+            guncelDeger.textContent = `Su anki ESC hizi: %${Number(esc.hiz).toFixed(1)}`;
         }
 
         function setConnection(isConnected) {
@@ -158,9 +281,9 @@
             if (status.baglanti_hata_mesaji) {
                 badge.classList.add("mode-danger");
                 text.textContent = "HATA";
-            } else if (status.bekleyen_girdi) {
+            } else if (status.esc && status.esc.ilk_deger_bekleniyor) {
                 badge.classList.add("mode-waiting");
-                text.textContent = "GIRDI BEKLENIYOR";
+                text.textContent = "ESC HIZI BEKLENIYOR";
             } else if (status.calisiyor) {
                 badge.classList.add("mode-auto");
                 text.textContent = "CALISIYOR";
@@ -176,10 +299,9 @@
             postJson("/api/atis-testi/baslat");
         });
 
-        document.getElementById("aci-gonder-btn").addEventListener("click", () => {
-            const yon = document.getElementById("aci-yon").value;
-            const aci = Number(document.getElementById("aci-derece").value);
-            postJson("/api/atis-testi/aci", {yon, aci});
+        document.getElementById("esc-gonder-btn").addEventListener("click", () => {
+            const hiz = Number(document.getElementById("esc-hiz-input").value);
+            postJson("/api/esc-hiz", {hiz});
         });
 
         document.getElementById("emergency").addEventListener("click", () => {
