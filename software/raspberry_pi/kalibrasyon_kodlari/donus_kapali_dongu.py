@@ -689,7 +689,7 @@ def donus_yap(hedef_derece, yon="sol", bridge=None, pwm_a=None, pwm_b=None, oton
         #     kaciyorsa): FREN_KATSAYISI'ni KUCULT.
         # =====================================================================
         FREN_KATSAYISI = 2.1 # saniye / (derece/saniye) - anlik hiza orantili fren suresi
-        FREN_MAKS_SURESI = 0.2   # saniye - GUVENLIK TAVANI, bunun uzerine cikmaz
+        FREN_MAKS_SURESI = 0.09   # saniye - GUVENLIK TAVANI, bunun uzerine cikmaz
         FREN_MIN_HIZ_ESIGI = 5.0  # derece/saniye - bu hizin altinda fren atisi YAPILMAZ
                                     # (zaten neredeyse duruyorsa ters darbe gereksiz/zararli olur)
         FREN_DUTY = HIZ_YAVAS      # ters yonde uygulanan duty - kontrollu, TAM HIZ DEGIL
