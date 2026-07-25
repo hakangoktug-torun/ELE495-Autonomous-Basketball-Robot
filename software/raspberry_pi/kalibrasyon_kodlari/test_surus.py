@@ -18,6 +18,19 @@ ve ileri_git_engel_bulunca() artik opsiyonel bir dur_bayragi (threading.Event)
 parametresi aliyor. Set edilirse motoru en kisa surede durdurup fonksiyondan
 cikarlar - Acil Durdur / Ctrl+C icin kullanilir.
 
+GUNCELLEME (BU SURUM - "hayalet mesafe sicramasi" duzeltmesi):
+  ileri_git_engel_bulunca()'da fiziksel olarak IMKANSIZ ani mesafe
+  dususleri (orn. 66cm -> 23cm tek ornekte, iki ornek arasindaki ~30-50ms'de
+  robotun bu hizda asla kat edemeyecegi bir mesafe) artik dogrudan kabul
+  edilmiyor. Bu, ultrasonik sensorun acili yuzeyden/gurultuden kaynakli
+  YANLIS bir yankiyi (multipath) GERCEK bir yaklasma sanip, robotu hedeften
+  onemli olcude ONCE durdurmasina yol aciyordu (gozlemlendi: hedef 49cm,
+  robot 25cm'de durdu). Su an bir sicrama sadece BIR SONRAKI ornek de
+  benzer bir deger verirse (yani robot gercekten oraya ulasmissa) kabul
+  ediliyor - aksi halde tamamen yoksayilip bir sonraki gercek olcum
+  beklenir (bkz. donus_hassas.py'deki HeadingTakip sicrama filtresiyle
+  AYNI mantik, burada mesafe icin uygulandi).
+
 Bu dosyayi ayni klasore koy: software/raspberry_pi/kalibrasyon_kodlari/
 (donus_kapali_dongu.py ve robot_bridge.py ile ayni yerde olmali)
 
@@ -221,10 +234,19 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
 
     ONEMLI: Ultrasonik sensor (HC-SR04) acili yuzeylerden/duvar koselerinden
     yansiyinca (multipath) tek seferlik, gercek olmayan yakin mesafe okumalari
-    verebilir. Bunu filtrelemek icin sadece GERCEKTEN YENI gelen Arduino
-    orneklerini sayiyoruz (bridge'in ic 'last_update' zaman damgasina bakarak) -
-    ayni bayat degeri hizli polling yuzunden birden fazla kez okumus olmak,
-    "dogrulanmis ardisik okuma" sayilmiyor.
+    verebilir. Bunu filtrelemek icin iki AYRI mekanizma var:
+      1) Sadece GERCEKTEN YENI gelen Arduino orneklerini sayiyoruz (bridge'in
+         ic 'last_update' zaman damgasina bakarak) - ayni bayat degeri hizli
+         polling yuzunden birden fazla kez okumus olmak, "dogrulanmis ardisik
+         okuma" sayilmiyor.
+      2) (YENI) FIZIKSEL OLABILIRLIK FILTRESI: iki ornek arasinda robotun bu
+         hizda ASLA kat edemeyecegi kadar BUYUK ve ANI bir mesafe DUSUSU
+         (orn. 66cm -> 23cm tek ornekte) dogrudan kabul edilmez - byle bir
+         sicrama, BIR SONRAKI ornek de benzer bir deger vermezse tamamen
+         yoksayilir (donus_hassas.py'deki heading sicrama filtresiyle AYNI
+         mantik, burada mesafe icin). Bu, sensorun yanlis/erken bir yankiyi
+         gercek bir yaklasma sanip robotu hedeften COK ONCE durdurmasini
+         (gozlemlenen bir sorun) engeller.
     """
     print(f"Engel araniyor (esik: {esik_cm} cm, hiz carpani: {hiz_carpani:.3f})...")
 
@@ -258,6 +280,17 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
     ardisik_basarisiz_kurtarma = 0
     son_mesafe_degeri = None
     son_mesafe_degisim_zamani = time.time()
+
+    # ---- YENI: Fiziksel olabilirlik filtresi (multipath/gurultu korumasi) ----
+    # son_gecerli_mesafe: en son KABUL EDILEN (gercek sayilan) mesafe olcumu.
+    # bekleyen_supheli_mesafe: suphelenilen ama henuz DOGRULANMAMIS bir
+    #   sicrama degeri - bir sonraki ornek buna yakin cikarsa gercek sayilir.
+    # MAKS_GECERLI_MESAFE_SICRAMASI: bir ornekten digerine (yaklasik 30-50ms
+    #   arayla) bu kadar cm'den BUYUK bir ANI DUSUS, robotun bu hizda
+    #   fiziksel olarak kat edemeyecegi bir mesafedir - supheli sayilir.
+    son_gecerli_mesafe = None
+    bekleyen_supheli_mesafe = None
+    MAKS_GECERLI_MESAFE_SICRAMASI = 15.0  # cm
 
     baslangic = time.time()
     while time.time() - baslangic < maks_sure:
@@ -302,6 +335,26 @@ def ileri_git_engel_bulunca(bridge, pwm_a, pwm_b, esik_cm=ENGEL_ESIGI_CM,
 
         if yeni_ornek_mi and mesafe is not None and mesafe > 0:  # -1 = gecersiz okuma, yoksay
             son_islenen_zaman_damgasi = guncel_zaman_damgasi
+
+            # ---- Fiziksel olabilirlik filtresi (multipath/gurultu korumasi) ----
+            # Ani ve BUYUK bir mesafe dususu (orn. 66cm -> 23cm tek ornekte),
+            # robotun bu hizda fiziksel olarak kat edemeyecegi bir degisimdir.
+            # Boyle bir sicrama, bir SONRAKI ornekte DE benzer bir deger
+            # vermezse GERCEK sayilmaz ve tamamen yoksayilir.
+            if (son_gecerli_mesafe is not None and
+                    (son_gecerli_mesafe - mesafe) > MAKS_GECERLI_MESAFE_SICRAMASI):
+                if bekleyen_supheli_mesafe is not None and abs(mesafe - bekleyen_supheli_mesafe) <= 3.0:
+                    print(f"  (Mesafe sicramasi DOGRULANDI, gercek kabul edildi: {mesafe:.1f} cm)")
+                    bekleyen_supheli_mesafe = None
+                else:
+                    print(f"  (SUPHELI mesafe sicramasi gorzmezden gelindi: "
+                          f"{son_gecerli_mesafe:.1f}cm -> {mesafe:.1f}cm - "
+                          f"bir sonraki ornekte dogrulanirsa kabul edilecek)")
+                    bekleyen_supheli_mesafe = mesafe
+                    time.sleep(0.03)
+                    continue
+            son_gecerli_mesafe = mesafe
+
             print(f"  Mesafe: {mesafe:.1f} cm")
             vcc_kontrol_et(veri.get("vcc_mv"))
 
