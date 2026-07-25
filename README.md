@@ -1,7 +1,7 @@
 # ELE495 Autonomous Basketball Robot
 
 **TOBB University of Economics and Technology — Electrical-Electronics Engineering**
-**ELE495 Capstone Design Project — Summer 2025 — Group 9**
+**ELE495 Capstone Design Project — Summer 2026 — Group 9**
 
 An autonomous mobile robot that navigates a miniature basketball court and
 shoots ping-pong balls through a hoop without any human control during the
