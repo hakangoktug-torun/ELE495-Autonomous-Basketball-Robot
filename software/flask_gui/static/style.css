@@ -165,6 +165,31 @@ h2 {
     gap: 2px;
 }
 
+/* YENI: gecis sayisi hucresi eklendigi icin 3 sutunlu varyant */
+.scoreboard-strip.uc-sutun {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+/* YENI: kalan sure hucresi eklendigi icin 4 sutunlu varyant */
+.scoreboard-strip.dort-sutun {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+/* YENI: 5 dakikalik sure sayaci - normalde notr, azalinca uyari/kritik renk */
+.strip-cell.sure-uyari strong {
+    color: var(--warn);
+}
+
+.strip-cell.sure-kritik strong {
+    color: var(--danger);
+    animation: sure-yanip-son 1s ease-in-out infinite;
+}
+
+@keyframes sure-yanip-son {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
 .strip-cell {
     background: var(--panel);
     padding: 16px 18px;
@@ -185,6 +210,129 @@ h2 {
     font-weight: 700;
     font-size: 20px;
     text-transform: uppercase;
+}
+
+/* ---------------- Pozisyon durumu paneli (YENI) ---------------- */
+
+.pozisyon-panel {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 18px 22px;
+    margin-bottom: 22px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.pozisyon-sayac {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+    padding-right: 20px;
+    border-right: 1px solid var(--panel-border);
+}
+
+.pozisyon-sayac-label {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.pozisyon-sayac strong {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 30px;
+    line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.pozisyon-detay {
+    flex: 1;
+    min-width: 0;
+}
+
+.pozisyon-etiket-satir {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.pozisyon-etiket-satir span:first-child {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 18px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.pozisyon-asama {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.bolge-rozeti {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid var(--panel-border);
+}
+
+.bolge-kirmizi {
+    background: rgba(226, 72, 61, 0.14);
+    border-color: rgba(226, 72, 61, 0.4);
+    color: var(--danger);
+}
+
+.bolge-yesil {
+    background: rgba(79, 181, 114, 0.14);
+    border-color: rgba(79, 181, 114, 0.4);
+    color: var(--success);
+}
+
+.bolge-bilinmiyor {
+    background: rgba(157, 153, 168, 0.12);
+    border-color: var(--panel-border);
+    color: var(--text-dim);
+}
+
+/* Asamaya gore panel vurgusu */
+.pozisyon-panel.pozisyon-aktif {
+    border-color: rgba(236, 106, 46, 0.45);
+    background: rgba(236, 106, 46, 0.06);
+}
+
+.pozisyon-panel.pozisyon-hareket {
+    border-color: rgba(224, 168, 62, 0.45);
+    background: rgba(224, 168, 62, 0.06);
+}
+
+.pozisyon-panel.pozisyon-tamamlandi {
+    border-color: rgba(79, 181, 114, 0.45);
+    background: rgba(79, 181, 114, 0.06);
+}
+
+.pozisyon-panel.pozisyon-durduruldu {
+    border-color: rgba(226, 72, 61, 0.5);
+    background: rgba(226, 72, 61, 0.08);
+}
+
+@media (max-width: 600px) {
+    .pozisyon-panel { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .pozisyon-sayac { border-right: none; padding-right: 0; align-items: flex-start; }
 }
 
 /* ---------------- Dashboard grid ---------------- */
@@ -210,6 +358,7 @@ h2 {
     .dashboard-grid { grid-template-columns: 1fr; }
     .control-panel, .input-panel, .history-panel { grid-column: 1; }
     h1 { font-size: 26px; }
+    .scoreboard-strip.dort-sutun { grid-template-columns: repeat(2, 1fr); }
 }
 
 .hint {
@@ -259,7 +408,7 @@ h2 {
 }
 .btn-emergency:hover { background: #c93b31; }
 
-/* ---------------- Input panel ---------------- */
+/* ---------------- Input / ESC panel ---------------- */
 
 .input-row {
     display: flex;
@@ -287,6 +436,12 @@ h2 {
     border: 1px solid var(--panel-border);
     background: #17161d;
     color: var(--text);
+}
+
+/* YENI: ESC hizi bekleniyorken paneli belirginlestir (dikkat cekici kenarlik/glow) */
+.input-panel.esc-bekleniyor {
+    border-color: var(--warn);
+    box-shadow: 0 0 0 1px rgba(224, 168, 62, 0.25), 0 0 18px rgba(224, 168, 62, 0.12);
 }
 
 /* ---------------- History ---------------- */
