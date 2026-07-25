@@ -15,7 +15,7 @@ gecen bir top, zeminden sekip potanin agzindan GERI CIKABILIYOR - bu da
 break-beam sensorlerini ikinci kez tetikleyip AYNI atisin YANLISLIKLA 2
 basarili gecis olarak sayilmasina (ve pozisyonun erken/hatali bitmesine)
 yol aciyordu. Bunu onlemek icin: bir gecis sayildiktan HEMEN sonra
-COOLDOWN_SURESI (1.5s) boyunca YENI tetiklemeler YOKSAYILIR - top sekip
+COOLDOWN_SURESI (1s) boyunca YENI tetiklemeler YOKSAYILIR - top sekip
 geri cikarsa bu ikinci tetikleme sayilmaz.
 
 GUNCELLEME (IKINCI ATIS ICIN SINIRLI BEKLEME - kural degisikligi): Onceki
@@ -25,7 +25,7 @@ BASARILI bir atis sonrasi o noktadan sadece 1 ATIS DAHA yapilabilir -
 BASARILI ya da BASARISIZ farketmeksizin. Break-beam sensorleri sadece
 BASARILI gecisleri algilayabildigi icin (bir ISKA'yi dogrudan olcecek bir
 sensorumuz yok), bu kural SUREYE dayanarak uygulaniyor: ilk basarili
-gecisten SONRA en fazla IKINCI_ATIS_MAKS_BEKLEME_SN (2.0s) beklenir, bu
+gecisten SONRA en fazla IKINCI_ATIS_MAKS_BEKLEME_SN (5.0s) beklenir, bu
 sure icinde 2. bir basarili gecis gelirse (ya da gelmese bile sure dolunca)
 pozisyon OTOMATIK olarak bitirilir - boylece "sinirsiz deneme" yerine
 kurala uygun sekilde "en fazla 1 ek deneme" hakki taniniyor.
@@ -201,7 +201,7 @@ class SkorDinleyici:
     def iki_gecis_oldu_mu(self):
         """
         ESKI davranis (geriye donuk uyumluluk icin korunuyor) - SADECE
-        2 basarili gecis olunca True doner, ilk basaridan sonraki 2s
+        2 basarili gecis olunca True doner, ilk basaridan sonraki 5s
         siniri BURADA UYGULANMAZ. Yeni kodda bunun yerine
         pozisyon_bitmeli_mi() kullanilmali.
         """
@@ -215,7 +215,7 @@ class SkorDinleyici:
           1) 2 basarili gecis olduysa (eskisi gibi, 2. gecis de basariliysa
              ANINDA biter).
           2) EN AZ 1 basarili gecis olduysa VE ilk basaridan bu yana
-             IKINCI_ATIS_MAKS_BEKLEME_SN (2.0s) gectiyse - 2. deneme
+             IKINCI_ATIS_MAKS_BEKLEME_SN (5.0s) gectiyse - 2. deneme
              BASARISIZ olsa bile (ya da hic denenmese bile) kural geregi
              pozisyon biter.
 
