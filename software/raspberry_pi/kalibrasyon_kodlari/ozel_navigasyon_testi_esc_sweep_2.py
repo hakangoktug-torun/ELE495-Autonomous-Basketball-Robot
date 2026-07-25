@@ -171,10 +171,10 @@ POZISYON_2 = dict(ilk_yon="sol", ilk_aci=102.0, esc_hiz=11.3,
 POZISYON_3 = dict(ilk_yon="sol", ilk_aci=114.0, esc_hiz=11.3,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="3. atis", puan=3)
-POZISYON_4 = dict(ilk_yon="sol", ilk_aci=36.0, esc_hiz=9.4,
+POZISYON_4 = dict(ilk_yon="sol", ilk_aci=36.0, esc_hiz=9.6,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="4. atis", puan=2)
-POZISYON_5 = dict(ilk_yon="sag", ilk_aci=84.0, esc_hiz=9.8,
+POZISYON_5 = dict(ilk_yon="sag", ilk_aci=84.0, esc_hiz=9.4,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="5. atis", puan=2)
 POZISYON_6 = dict(ilk_yon="sol", ilk_aci=8.0, esc_hiz=11.3,
@@ -183,6 +183,7 @@ POZISYON_6 = dict(ilk_yon="sol", ilk_aci=8.0, esc_hiz=11.3,
 POZISYON_7 = dict(ilk_yon="sol", ilk_aci=116.0, esc_hiz=11,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="7. atis", puan=3)
+
 POZISYON_8 = dict(ilk_yon="sag", ilk_aci=95.0, esc_hiz=11.2,
                    sweep_yon="sag", sweep_adim=2.0, sweep_bekleme=10.0,
                    maks_sweep=3, etiket="8. atis", puan=3)
