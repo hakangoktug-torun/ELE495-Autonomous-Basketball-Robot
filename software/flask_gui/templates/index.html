@@ -49,6 +49,22 @@
             </div>
         </section>
 
+        <!-- YENI: Robot Durumu paneli - instructor'un istedigi "gercek zamanli
+             robot durumu" (hareket halinde mi, donuyor mu, atis mi yapiyor,
+             duruyor mu) icin AYRI, ozel bir gosterge. Bu panel /api/durum'dan
+             gelen VERIYI YORUMLAR (bkz. asagidaki classifyRobotDurumu()) -
+             backend/navigasyon kodunda ya da log akisinda HICBIR DEGISIKLIK
+             gerektirmez. -->
+        <section class="robot-durum-panel" id="robot-durum-panel" aria-label="Robot anlik durumu">
+            <div class="robot-durum-ikon" id="robot-durum-ikon">
+                <span class="durum-gosterge"></span>
+            </div>
+            <div class="robot-durum-detay">
+                <span class="robot-durum-baslik" id="robot-durum-baslik">BEKLEMEDE</span>
+                <p class="robot-durum-aciklama" id="robot-durum-aciklama">Test henuz baslamadi.</p>
+            </div>
+        </section>
+
         <section class="pozisyon-panel" id="pozisyon-panel" aria-label="Aktif pozisyon durumu">
             <div class="pozisyon-sayac">
                 <span class="pozisyon-sayac-label">POZISYON</span>
@@ -133,6 +149,7 @@
             updateModeBadge(status);
             updateEscPanel(status.esc);
             updatePozisyonPanel(status.aktif_pozisyon);
+            updateRobotDurumPaneli(status);
 
             const history = document.getElementById("task-history");
             history.innerHTML = "";
@@ -147,6 +164,96 @@
                 row.append(time, message);
                 history.appendChild(row);
             });
+        }
+
+        // ------------------------------------------------------------------
+        // YENI: Robot Durumu paneli - "gercek zamanli robot durumu" (hareket
+        // halinde mi, donuyor mu, atis/sweep mi yapiyor, duruyor mu) icin.
+        //
+        // NASIL CALISIR: Backend zaten iki veri kanali sagliyor -
+        //   (1) status.aktif_pozisyon.asama - KABA/yapilandirilmis asama
+        //       ("beklemede","baslatiliyor","atis","hareket","tamamlandi",
+        //       "durduruldu","hata")
+        //   (2) status.gecmis[0] - EN SON log satiri (serbest metin, en
+        //       yeni once - bkz. app.py _gecmise_ekle: gecmis.insert(0,...))
+        //
+        // "atis" ya da "hareket" asamasindayken (yani test aktif calisirken)
+        // robotun O ANDA TAM OLARAK ne yaptigini (donuyor/ileri/geri/sweep)
+        // ayirt etmek icin en son log satirindaki anahtar kelimelere bakilir.
+        // Bu SADECE mevcut metni YORUMLAMAKTIR - navigasyon kodu, app.py ya
+        // da log'un kendisi HICBIR SEKILDE degistirilmedi/degistirilmiyor.
+        // ------------------------------------------------------------------
+
+        function classifyRobotDurumu(status) {
+            const asama = status.aktif_pozisyon ? status.aktif_pozisyon.asama : null;
+            const sonLogSatiri = (status.gecmis && status.gecmis.length > 0) ? status.gecmis[0] : "";
+            // Log satirlari "HH:MM:SS - mesaj" formatinda - zaman damgasini at.
+            const sonMetin = sonLogSatiri.includes(" - ")
+                ? sonLogSatiri.split(" - ").slice(1).join(" - ")
+                : sonLogSatiri;
+
+            // ---- Kaba/guvenilir durumlar - dogrudan yapilandirilmis asama ----
+            if (!status.calisiyor && (!asama || asama === "beklemede")) {
+                return { sinif: "durum-bekleme", baslik: "BEKLEMEDE", aciklama: "Test henuz baslamadi." };
+            }
+            if (asama === "baslatiliyor") {
+                return { sinif: "durum-bekleme", baslik: "BASLATILIYOR", aciklama: sonMetin || "Baglanti kuruluyor..." };
+            }
+            if (asama === "tamamlandi") {
+                return { sinif: "durum-tamamlandi", baslik: "GOREV TAMAMLANDI", aciklama: sonMetin };
+            }
+            if (asama === "durduruldu") {
+                return { sinif: "durum-durduruldu", baslik: "DURDURULDU", aciklama: sonMetin };
+            }
+            if (asama === "hata") {
+                return { sinif: "durum-hata", baslik: "HATA", aciklama: sonMetin };
+            }
+
+            // ---- Ince taneli durumlar (asama "atis" ya da "hareket" iken) ----
+            // En son log satirindaki anahtar kelimelere gore robotun o anki
+            // fiziksel eylemini (donus/ileri/geri/sweep/olcum) tahmin eder.
+            const metin = sonMetin.toLowerCase();
+
+            if (metin.includes("sweep adimi") || metin.includes("esc hizi") ||
+                metin.includes("atisa birakiliyor") || metin.includes("basarili bir")) {
+                return { sinif: "durum-atis", baslik: "ATIS / SWEEP", aciklama: sonMetin };
+            }
+            if (metin.includes("derece") && (metin.includes("donul") || metin.includes("donus") ||
+                metin.includes("geri aliniyor") || metin.includes("yone"))) {
+                return { sinif: "durum-donuyor", baslik: "DONUYOR", aciklama: sonMetin };
+            }
+            if (metin.includes("geri gidiliyor") || (metin.includes("geri") && metin.includes("duz"))) {
+                return { sinif: "durum-geri", baslik: "GERI GIDIYOR", aciklama: sonMetin };
+            }
+            if (metin.includes("ileri gidiliyor") || metin.includes("ilerleniyor")) {
+                return { sinif: "durum-ileri", baslik: "ILERLIYOR", aciklama: sonMetin };
+            }
+            if (metin.includes("mesafe") || metin.includes("renk dogrulama") || metin.includes("engel araniyor")) {
+                return { sinif: "durum-ileri", baslik: "OLCUM / YAKLASMA", aciklama: sonMetin };
+            }
+
+            // Metin eslesmedi ama asama biliniyor - asamaya gore makul varsayim.
+            if (asama === "atis") {
+                return { sinif: "durum-atis", baslik: "ATIS POZISYONUNDA", aciklama: sonMetin };
+            }
+            if (asama === "hareket") {
+                return { sinif: "durum-donuyor", baslik: "HAREKET EDIYOR", aciklama: sonMetin };
+            }
+
+            return { sinif: "durum-bekleme", baslik: "BEKLEMEDE", aciklama: sonMetin || "" };
+        }
+
+        function updateRobotDurumPaneli(status) {
+            const panel = document.getElementById("robot-durum-panel");
+            const baslikEl = document.getElementById("robot-durum-baslik");
+            const aciklamaEl = document.getElementById("robot-durum-aciklama");
+
+            const durum = classifyRobotDurumu(status);
+
+            panel.className = "robot-durum-panel " + durum.sinif;
+            baslikEl.textContent = durum.baslik;
+            aciklamaEl.textContent = durum.aciklama || "";
+            aciklamaEl.title = durum.aciklama || "";
         }
 
         // YENI: Robotun su anki pozisyonunu/bolgesini genel loglardan AYRI
