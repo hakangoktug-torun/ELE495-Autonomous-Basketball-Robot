@@ -212,7 +212,161 @@ h2 {
     text-transform: uppercase;
 }
 
-/* ---------------- Pozisyon durumu paneli (YENI) ---------------- */
+/* ---------------- Robot durumu paneli (YENI) ---------------- */
+/* AMAC: instructor'un istedigi "gercek zamanli robot durumu" (hareket
+   halinde mi, donuyor mu, atis mi yapiyor, duruyor mu) icin AYRI, ozel
+   bir gosterge paneli. Bu panel SADECE mevcut /api/durum verisini
+   (gecmis log dizisi + aktif_pozisyon.asama) YORUMLAR - backend'de,
+   navigasyon kodunda ya da log mekanizmasinda HICBIR DEGISIKLIK
+   gerektirmez (bkz. index.html'deki classifyRobotDurumu()). */
+
+.robot-durum-panel {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 18px 22px;
+    margin-bottom: 22px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.robot-durum-ikon {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: 2px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.2s ease;
+}
+
+/* "Dönüyor" durumunda saat ibresi gibi donen bir cizgi */
+.robot-durum-ikon::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 2px;
+    height: 15px;
+    background: var(--text-dim);
+    transform-origin: bottom center;
+    transform: translateX(-50%);
+    border-radius: 2px;
+}
+
+.durum-gosterge {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: block;
+}
+
+.robot-durum-detay {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.robot-durum-baslik {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text);
+}
+
+.robot-durum-aciklama {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- Durum varyantlari ---- */
+
+/* Bekleme / baslatiliyor - notr */
+.robot-durum-panel.durum-bekleme .durum-gosterge { background: var(--text-dim); }
+
+/* DONUYOR - saat ibresi doner, gosterge turuncu */
+.robot-durum-panel.durum-donuyor { border-color: rgba(236, 106, 46, 0.45); background: rgba(236, 106, 46, 0.06); }
+.robot-durum-panel.durum-donuyor .robot-durum-ikon { border-color: var(--accent); }
+.robot-durum-panel.durum-donuyor .robot-durum-ikon::after { background: var(--accent); animation: durum-donus-ibre 1s linear infinite; }
+.robot-durum-panel.durum-donuyor .durum-gosterge { background: var(--accent); }
+.robot-durum-panel.durum-donuyor .robot-durum-baslik { color: var(--accent); }
+
+/* ILERLIYOR - yesil, gosterge sag-sol kayar */
+.robot-durum-panel.durum-ileri { border-color: rgba(79, 181, 114, 0.45); background: rgba(79, 181, 114, 0.06); }
+.robot-durum-panel.durum-ileri .robot-durum-ikon { border-color: var(--success); }
+.robot-durum-panel.durum-ileri .durum-gosterge { background: var(--success); animation: durum-ileri-git 0.9s ease-in-out infinite; }
+.robot-durum-panel.durum-ileri .robot-durum-baslik { color: var(--success); }
+
+/* GERI GIDIYOR - sari, gosterge ters yonde kayar */
+.robot-durum-panel.durum-geri { border-color: rgba(224, 168, 62, 0.45); background: rgba(224, 168, 62, 0.06); }
+.robot-durum-panel.durum-geri .robot-durum-ikon { border-color: var(--warn); }
+.robot-durum-panel.durum-geri .durum-gosterge { background: var(--warn); animation: durum-geri-git 0.9s ease-in-out infinite; }
+.robot-durum-panel.durum-geri .robot-durum-baslik { color: var(--warn); }
+
+/* ATIS / SWEEP - turuncu, gosterge nabiz gibi buyuyup kuculur */
+.robot-durum-panel.durum-atis { border-color: rgba(236, 106, 46, 0.55); background: rgba(236, 106, 46, 0.09); }
+.robot-durum-panel.durum-atis .robot-durum-ikon { border-color: var(--accent); }
+.robot-durum-panel.durum-atis .durum-gosterge { background: var(--accent); animation: durum-nabiz 0.8s ease-in-out infinite; }
+.robot-durum-panel.durum-atis .robot-durum-baslik { color: var(--accent); }
+
+/* TAMAMLANDI - yesil, sabit */
+.robot-durum-panel.durum-tamamlandi { border-color: rgba(79, 181, 114, 0.45); background: rgba(79, 181, 114, 0.06); }
+.robot-durum-panel.durum-tamamlandi .robot-durum-ikon { border-color: var(--success); }
+.robot-durum-panel.durum-tamamlandi .durum-gosterge { background: var(--success); }
+.robot-durum-panel.durum-tamamlandi .robot-durum-baslik { color: var(--success); }
+
+/* DURDURULDU / HATA - kirmizi, yanip soner */
+.robot-durum-panel.durum-durduruldu,
+.robot-durum-panel.durum-hata {
+    border-color: rgba(226, 72, 61, 0.5);
+    background: rgba(226, 72, 61, 0.08);
+}
+.robot-durum-panel.durum-durduruldu .robot-durum-ikon,
+.robot-durum-panel.durum-hata .robot-durum-ikon { border-color: var(--danger); }
+.robot-durum-panel.durum-durduruldu .durum-gosterge,
+.robot-durum-panel.durum-hata .durum-gosterge { background: var(--danger); animation: sure-yanip-son 1s ease-in-out infinite; }
+.robot-durum-panel.durum-durduruldu .robot-durum-baslik,
+.robot-durum-panel.durum-hata .robot-durum-baslik { color: var(--danger); }
+
+@keyframes durum-donus-ibre {
+    from { transform: translateX(-50%) rotate(0deg); }
+    to   { transform: translateX(-50%) rotate(360deg); }
+}
+
+@keyframes durum-ileri-git {
+    0%, 100% { transform: translateX(-6px); opacity: 0.5; }
+    50% { transform: translateX(6px); opacity: 1; }
+}
+
+@keyframes durum-geri-git {
+    0%, 100% { transform: translateX(6px); opacity: 0.5; }
+    50% { transform: translateX(-6px); opacity: 1; }
+}
+
+@keyframes durum-nabiz {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.35); opacity: 1; }
+}
+
+@media (max-width: 600px) {
+    .robot-durum-panel { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
+
+/* ---------------- Pozisyon durumu paneli ---------------- */
 
 .pozisyon-panel {
     display: flex;
@@ -332,7 +486,6 @@ h2 {
 
 @media (max-width: 600px) {
     .pozisyon-panel { flex-direction: column; align-items: flex-start; gap: 10px; }
-    .pozisyon-sayac { border-right: none; padding-right: 0; align-items: flex-start; }
 }
 
 /* ---------------- Dashboard grid ---------------- */
